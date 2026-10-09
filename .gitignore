@@ -1,0 +1,16 @@
+# 构建输出（经 GitHub Releases 分发，不入库）
+Raydesktop/
+Raydesktop-*.zip
+
+# 日志
+*.log
+
+# 本地检查/临时文件
+_exeicon_check.png
+
+# 系统与 IDE
+Thumbs.db
+Desktop.ini
+.vs/
+*.user
+*.suo
