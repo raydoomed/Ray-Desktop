@@ -295,13 +295,13 @@ namespace ChildSessionDesktop
                 Program.Log("ConnectToChildSession set true");
                 client.AdvancedSettings9.EnableCredSspSupport = true;
                 client.AdvancedSettings9.SmartSizing = true;
-                client.AdvancedSettings9.RedirectClipboard = true;
+                client.AdvancedSettings9.RedirectClipboard = false;
                 client.AdvancedSettings9.RedirectDrives = true;
                 EnableDriveRedirection(ocx);
                 client.AdvancedSettings9.EnableWindowsKey = 1;
                 client.AdvancedSettings9.AcceleratorPassthrough = 1;
                 client.SecuredSettings3.KeyboardHookMode = 1;
-                Program.Log("SmartSizing, clipboard and drive redirection enabled; Windows key combinations redirected");
+                Program.Log("RDP clipboard redirection off (the Ray Desktop bridge relays text and files); drive redirection and Windows key combinations enabled");
                 ((IMsTscAx)ocx).Connect();
                 Program.Log("Connect() returned");
                 statusTimer.Start();
@@ -459,7 +459,7 @@ namespace ChildSessionDesktop
                 var settings = client.AdvancedSettings9;
                 Program.Log("RDP redirection settings after connect: RedirectClipboard=" + settings.RedirectClipboard +
                     ", RedirectDrives=" + settings.RedirectDrives + ", DisableRdpdr=" + settings.DisableRdpdr);
-                Program.Log("File clipboard bridge active; it mirrors local file paths between the two shared-filesystem sessions");
+                Program.Log("Clipboard bridge active; it mirrors text and local file paths between the two sessions (RDP clipboard redirection is off)");
             }
             catch (Exception ex)
             {

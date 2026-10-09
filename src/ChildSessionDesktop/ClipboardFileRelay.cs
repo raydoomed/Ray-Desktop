@@ -14,7 +14,7 @@ namespace ChildSessionDesktop
     internal sealed class ClipboardFileRelay : IDisposable
     {
         internal const int WmClipboardUpdate = 0x031D;
-        private const int ClipboardFileListMagic = 0x31465343;
+        private const int ClipboardMessageMagic = 0x31465344;
         private const string RunValueName = "RayDesktopClipboardAgent";
         private readonly bool isChild;
         private readonly string incomingPath;
@@ -116,26 +116,37 @@ namespace ChildSessionDesktop
                     return;
                 }
 
-                StringCollection dropList = Clipboard.GetFileDropList();
+                StringCollection dropList = Clipboard.ContainsFileDropList() ? Clipboard.GetFileDropList() : null;
+                string text = null;
                 if (dropList == null || dropList.Count == 0)
                 {
-                    lastSentFingerprint = null;
-                    lastAppliedFingerprint = null;
-                    return;
+                    if (Clipboard.ContainsText()) text = Clipboard.GetText();
+                    if (string.IsNullOrEmpty(text))
+                    {
+                        lastSentFingerprint = null;
+                        lastAppliedFingerprint = null;
+                        return;
+                    }
                 }
 
-                string[] paths = new string[dropList.Count];
-                for (int i = 0; i < dropList.Count; i++) paths[i] = dropList[i];
-                string fingerprint = Fingerprint(paths);
+                string[] paths;
+                if (dropList != null && dropList.Count > 0)
+                {
+                    paths = new string[dropList.Count];
+                    for (int i = 0; i < dropList.Count; i++) paths[i] = dropList[i];
+                }
+                else paths = new string[0];
+
+                string fingerprint = paths.Length > 0 ? Fingerprint(paths) : FingerprintText(text);
                 DateTime now = DateTime.UtcNow;
                 if ((fingerprint == lastAppliedFingerprint && now - lastAppliedAt < TimeSpan.FromSeconds(3)) ||
                     (fingerprint == lastSentFingerprint && now - lastSentAt < TimeSpan.FromSeconds(3)))
                     return;
 
-                WriteMessage(outgoingPath, paths);
+                WriteMessage(outgoingPath, paths, text);
                 lastSentFingerprint = fingerprint;
                 lastSentAt = now;
-                Program.Log("File clipboard relayed " + paths.Length + " path(s) " + (isChild ? "from child session" : "from host session"));
+                Program.Log("Clipboard relayed " + (paths.Length > 0 ? paths.Length + " file path(s) " : "text ") + (isChild ? "from child session" : "from host session"));
             }
             catch (ExternalException)
             {
@@ -164,24 +175,37 @@ namespace ChildSessionDesktop
             {
                 Guid messageId;
                 string[] paths;
-                if (!ReadMessage(incomingPath, out messageId, out paths) || messageId == lastIncomingId) return;
-                if (paths.Length == 0)
+                string text;
+                if (!ReadMessage(incomingPath, out messageId, out paths, out text) || messageId == lastIncomingId) return;
+                if (paths.Length == 0 && string.IsNullOrEmpty(text))
                 {
                     lastIncomingId = messageId;
                     return;
                 }
 
-                var dropList = new StringCollection();
-                foreach (string path in paths) dropList.Add(path);
-                string fingerprint = Fingerprint(paths);
-                Clipboard.SetFileDropList(dropList);
+                string fingerprint = paths.Length > 0 ? Fingerprint(paths) : FingerprintText(text);
+                // Never re-apply content this session just sent out: it is an echo of our own
+                // clipboard (round-tripped via the other session). Re-applying it overwrites the
+                // local clipboard and breaks same-session copy/paste.
+                if (fingerprint == lastSentFingerprint)
+                {
+                    lastIncomingId = messageId;
+                    return;
+                }
+                if (paths.Length > 0)
+                {
+                    var dropList = new StringCollection();
+                    foreach (string path in paths) dropList.Add(path);
+                    Clipboard.SetFileDropList(dropList);
+                }
+                else Clipboard.SetText(text);
                 // Mark the message only after the clipboard accepted it. If another process
                 // temporarily owns the clipboard, the next poll must retry this same message.
                 lastIncomingId = messageId;
                 lastAppliedFingerprint = fingerprint;
                 lastAppliedAt = DateTime.UtcNow;
                 suppressSequence = GetClipboardSequenceNumber();
-                Program.Log("File clipboard received " + paths.Length + " path(s) " + (isChild ? "in child session" : "in host session"));
+                Program.Log("Clipboard received " + (paths.Length > 0 ? paths.Length + " file path(s) " : "text ") + (isChild ? "in child session" : "in host session"));
             }
             catch (IOException)
             {
@@ -206,7 +230,16 @@ namespace ChildSessionDesktop
             }
         }
 
-        private static void WriteMessage(string path, string[] paths)
+        private static string FingerprintText(string text)
+        {
+            using (SHA256 hash = SHA256.Create())
+            {
+                byte[] digest = hash.ComputeHash(Encoding.Unicode.GetBytes(text ?? string.Empty));
+                return BitConverter.ToString(digest);
+            }
+        }
+
+        private static void WriteMessage(string path, string[] paths, string text)
         {
             string directory = Path.GetDirectoryName(path);
             Directory.CreateDirectory(directory);
@@ -217,8 +250,10 @@ namespace ChildSessionDesktop
                 using (var stream = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None))
                 using (var writer = new BinaryWriter(stream, Encoding.UTF8))
                 {
-                    writer.Write(ClipboardFileListMagic);
+                    writer.Write(ClipboardMessageMagic);
+                    writer.Write(2); // mailbox format version
                     writer.Write(messageId.ToByteArray());
+                    writer.Write(text ?? string.Empty);
                     writer.Write(paths.Length);
                     foreach (string item in paths) writer.Write(item ?? string.Empty);
                 }
@@ -236,17 +271,20 @@ namespace ChildSessionDesktop
             }
         }
 
-        private static bool ReadMessage(string path, out Guid messageId, out string[] paths)
+        private static bool ReadMessage(string path, out Guid messageId, out string[] paths, out string text)
         {
             messageId = Guid.Empty;
             paths = new string[0];
+            text = null;
             using (var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
             using (var reader = new BinaryReader(stream, Encoding.UTF8))
             {
-                if (reader.ReadInt32() != ClipboardFileListMagic) return false;
+                if (reader.ReadInt32() != ClipboardMessageMagic) return false;
+                if (reader.ReadInt32() != 2) return false;
                 byte[] idBytes = reader.ReadBytes(16);
                 if (idBytes.Length != 16) return false;
                 messageId = new Guid(idBytes);
+                text = reader.ReadString();
                 int count = reader.ReadInt32();
                 if (count < 0 || count > 4096) return false;
                 paths = new string[count];
