@@ -14,6 +14,7 @@ function Publish-BuildOutput([string]$temporary, [string]$target) {
 
 $childSource = Join-Path $PSScriptRoot 'src\ChildSessionDesktop\Program.cs'
 $clipboardRelaySource = Join-Path $PSScriptRoot 'src\ChildSessionDesktop\ClipboardFileRelay.cs'
+$childManifest = Join-Path $PSScriptRoot 'src\ChildSessionDesktop\app.manifest'
 $icon = Join-Path $PSScriptRoot 'assets\RayDesktop.ico'
 $childTarget = Join-Path $output 'Raydesktop.exe'
 $childTemporary = Join-Path $output 'Raydesktop.build.exe'
@@ -40,7 +41,7 @@ try {
     if ($LASTEXITCODE -ne 0) { throw "RDP ActiveX wrapper generation failed with exit code $LASTEXITCODE" }
 
     $childReferences = $references + @(("/r:{0}" -f $interop), ("/r:{0}" -f $axInterop))
-    & $compiler /nologo /target:winexe ("/out:{0}" -f $childTemporary) ("/win32icon:{0}" -f $icon) @childReferences $childSource $clipboardRelaySource
+    & $compiler /nologo /target:winexe ("/out:{0}" -f $childTemporary) ("/win32icon:{0}" -f $icon) ("/win32manifest:{0}" -f $childManifest) @childReferences $childSource $clipboardRelaySource
     if ($LASTEXITCODE -ne 0) { throw "Child-session GUI build failed with exit code $LASTEXITCODE" }
 
     & $compiler /nologo /target:winexe ("/out:{0}" -f $setupTemporary) ("/win32manifest:{0}" -f $setupManifest) @setupReferences $setupSource

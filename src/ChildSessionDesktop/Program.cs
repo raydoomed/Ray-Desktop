@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Drawing;
@@ -16,6 +16,7 @@ namespace ChildSessionDesktop
     {
         private static readonly object LogLock = new object();
         private static bool logInitialized;
+        private static Mutex singleInstance;
         [STAThread]
         private static void Main(string[] args)
         {
@@ -46,7 +47,20 @@ namespace ChildSessionDesktop
                     }
                     return;
                 }
-                Application.Run(new DesktopForm());
+                bool agentMode = args != null && args.Length > 0 &&
+                    string.Equals(args[0], "--clipboard-agent", StringComparison.OrdinalIgnoreCase);
+                bool dynamicMode = args != null && Array.IndexOf(args, "--dynamic") >= 0;
+                if (!agentMode)
+                {
+                    bool createdNew;
+                    singleInstance = new Mutex(true, @"Local\RayDesktop_SingleInstance", out createdNew);
+                    if (!createdNew)
+                    {
+                        Log("Another Ray Desktop instance is already running; this instance will exit.");
+                        return;
+                    }
+                }
+                Application.Run(new DesktopForm(dynamicMode));
             }
             catch (Exception ex)
             {
@@ -138,7 +152,6 @@ namespace ChildSessionDesktop
     internal sealed class DesktopForm : Form
     {
         private readonly ChildSessionControl rdp;
-        private readonly Label status;
         private readonly Timer statusTimer;
         private readonly Timer displayResizeTimer;
         private readonly Timer clipboardRelayTimer;
@@ -155,33 +168,49 @@ namespace ChildSessionDesktop
         private DateTime nextResizeAttempt = DateTime.MinValue;
         private int resizeRetryCount;
 
-        internal DesktopForm()
+        private readonly bool dynamicMode;
+        private double aspect;
+        private bool fullscreen;
+        private Rectangle prevBounds;
+        private FormBorderStyle prevBorder;
+        private const int WM_SIZING = 0x0214;
+        private const int WM_HOTKEY = 0x0312;
+        private const int WMSZ_LEFT = 1, WMSZ_RIGHT = 2, WMSZ_TOP = 3, WMSZ_TOPLEFT = 4,
+            WMSZ_TOPRIGHT = 5, WMSZ_BOTTOM = 6, WMSZ_BOTTOMLEFT = 7, WMSZ_BOTTOMRIGHT = 8;
+        private const uint VK_F11 = 0x7A;
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct RECT { public int Left, Top, Right, Bottom; }
+
+        [DllImport("user32.dll")]
+        private static extern bool RegisterHotKey(IntPtr hWnd, int id, uint fsModifiers, uint vk);
+
+        [DllImport("user32.dll")]
+        private static extern bool UnregisterHotKey(IntPtr hWnd, int id);
+
+        internal DesktopForm(bool dynamicMode)
         {
+            this.dynamicMode = dynamicMode;
             Text = "Ray Desktop";
-            Width = 1280;
-            Height = 820;
-            MinimumSize = new Size(640, 400);
+            BackColor = Color.Black;
             StartPosition = FormStartPosition.CenterScreen;
             Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath);
 
-            var toolbar = new Panel { Dock = DockStyle.Top, Height = 42, BackColor = Color.FromArgb(35, 43, 54) };
-            var reconnect = new Button
-            {
-                Text = "连接",
-                AutoSize = true,
-                Left = 8,
-                Top = 6,
-                FlatStyle = FlatStyle.Flat,
-                UseVisualStyleBackColor = false,
-                BackColor = Color.FromArgb(63, 83, 108),
-                ForeColor = Color.White
-            };
-            reconnect.FlatAppearance.BorderColor = Color.FromArgb(135, 160, 190);
-            reconnect.Click += delegate { ConnectChildSession(); };
-            status = new Label { Left = 140, Top = 12, Width = 700, ForeColor = Color.White,
-                Text = "正在初始化子会话桌面…" };
-            rdp = new ChildSessionControl { Dock = DockStyle.Fill, BackColor = Color.Black };
-            rdp.Resize += delegate { QueueDisplayResize(true); };
+            // 开局窗口：客户区 = 屏幕 90% 宽，高度按会话宽高比推算 → 一开始就无黑边、不变形
+            int screenW = Screen.PrimaryScreen.Bounds.Width;
+            int screenH = Screen.PrimaryScreen.Bounds.Height;
+            if (screenW <= 0 || screenH <= 0) { screenW = 1280; screenH = 720; }
+            aspect = (double)screenW / (double)screenH;
+            int initialW = (int)(screenW * 0.9);
+            int initialH = (int)(initialW / aspect + 0.5);
+            ClientSize = new Size(initialW, initialH);
+            // 最小尺寸严格保持主机比例，缩到最小也不破比例、无黑边
+            int minW = 640;
+            MinimumSize = new Size(minW, (int)(minW / aspect + 0.5));
+
+            rdp = new ChildSessionControl { Dock = dynamicMode ? DockStyle.Fill : DockStyle.None, BackColor = Color.Black };
+            if (dynamicMode) rdp.Resize += delegate { QueueDisplayResize(true); };
+            else Program.Log("Letterbox (fixed-resolution) mode enabled; session resolution is pinned to the host screen");
             clipboardRelay = new ClipboardFileRelay(false);
             clipboardRelayTimer = new Timer { Interval = 250 };
             clipboardRelayTimer.Tick += delegate
@@ -190,11 +219,7 @@ namespace ChildSessionDesktop
                 clipboardRelay.RetryPendingClipboardRead();
             };
             clipboardRelayTimer.Start();
-            toolbar.Controls.Add(reconnect);
-            toolbar.Controls.Add(status);
-
             Controls.Add(rdp);
-            Controls.Add(toolbar);
 
             statusTimer = new Timer { Interval = 750 };
             statusTimer.Tick += delegate { UpdateConnectionStatus(); };
@@ -207,6 +232,7 @@ namespace ChildSessionDesktop
             Shown += delegate
             {
                 Program.Log("Host form shown");
+                if (!dynamicMode) ApplyLetterbox();   // 窗体一显示就把控件摆到正确矩形，避免左上角小黑块
                 ClipboardFileRelay.RegisterChildAgent();
                 BeginInvoke((MethodInvoker)ConnectChildSession);
             };
@@ -218,16 +244,64 @@ namespace ChildSessionDesktop
             base.OnHandleCreated(e);
             if (clipboardRelay != null && !ClipboardFileRelay.AddClipboardFormatListener(Handle))
                 Program.Log("Could not register the host-session clipboard listener; Windows error " + Marshal.GetLastWin32Error());
+            if (!dynamicMode && !RegisterHotKey(Handle, 1, 0, VK_F11))
+                Program.Log("Could not register the F11 fullscreen hotkey; Windows error " + Marshal.GetLastWin32Error());
         }
 
         protected override void OnHandleDestroyed(EventArgs e)
         {
             if (IsHandleCreated && clipboardRelay != null) ClipboardFileRelay.RemoveClipboardFormatListener(Handle);
+            if (!dynamicMode) UnregisterHotKey(Handle, 1);
             base.OnHandleDestroyed(e);
+        }
+
+        protected override void OnResize(EventArgs e)
+        {
+            base.OnResize(e);
+            if (!dynamicMode) ApplyLetterbox();
         }
 
         protected override void WndProc(ref Message m)
         {
+            if (m.Msg == WM_HOTKEY && m.WParam.ToInt32() == 1)
+            {
+                ToggleFullscreen();
+                return;
+            }
+
+            if (!dynamicMode && m.Msg == WM_SIZING && aspect > 0)
+            {
+                RECT r = (RECT)Marshal.PtrToStructure(m.LParam, typeof(RECT));
+                int bw = Width - ClientSize.Width;                 // 边框总宽
+                int bh = Height - ClientSize.Height;               // 标题栏+边框总高
+                int cw = (r.Right - r.Left) - bw;
+                int ch = (r.Bottom - r.Top) - bh;
+                if (cw > 160 && ch > 120)
+                {
+                    int ncw, nch;
+                    if ((double)cw / ch > aspect) { ncw = (int)(ch * aspect + 0.5); nch = ch; }
+                    else                          { ncw = cw; nch = (int)(cw / aspect + 0.5); }
+
+                    int W = bw + ncw;
+                    int H = bh + nch;
+                    switch (m.WParam.ToInt32())
+                    {
+                        case WMSZ_LEFT:        r.Left  = r.Right  - W; break;
+                        case WMSZ_RIGHT:       r.Right = r.Left   + W; break;
+                        case WMSZ_TOP:         r.Top   = r.Bottom - H; break;
+                        case WMSZ_BOTTOM:      r.Bottom= r.Top    + H; break;
+                        case WMSZ_TOPLEFT:     r.Left  = r.Right  - W; r.Top    = r.Bottom - H; break;
+                        case WMSZ_TOPRIGHT:    r.Right = r.Left   + W; r.Top    = r.Bottom - H; break;
+                        case WMSZ_BOTTOMLEFT:  r.Left  = r.Right  - W; r.Bottom = r.Top    + H; break;
+                        case WMSZ_BOTTOMRIGHT: r.Right = r.Left   + W; r.Bottom = r.Top    + H; break;
+                        default:               r.Right = r.Left   + W; r.Bottom = r.Top    + H; break;
+                    }
+                    Marshal.StructureToPtr(r, m.LParam, false);
+                    m.Result = (IntPtr)1;
+                    return;
+                }
+            }
+
             if (m.Msg == ClipboardFileRelay.WmClipboardUpdate)
             {
                 if (clipboardRelay != null) clipboardRelay.OnClipboardChanged();
@@ -235,9 +309,64 @@ namespace ChildSessionDesktop
             base.WndProc(ref m);
         }
 
+        private void ApplyLetterbox()
+        {
+            if (rdp == null || rdp.IsDisposed) return;
+            int cw = ClientSize.Width;
+            int ch = ClientSize.Height;
+            if (cw <= 0 || ch <= 0) return;
+            int dw = cw, dh = ch;
+            if (aspect > 0)
+            {
+                if ((double)cw / ch > aspect) dw = (int)(ch * aspect + 0.5);   // 太宽 → 定高算宽，左右黑边
+                else                          dh = (int)(cw / aspect + 0.5);  // 太高 → 定宽算高，上下黑边
+            }
+            rdp.Location = new Point((cw - dw) / 2, (ch - dh) / 2);
+            rdp.Size = new Size(dw, dh);
+        }
+
+        private void OpenLogFolder()
+        {
+            try
+            {
+                string dir = Path.GetDirectoryName(Application.ExecutablePath);
+                string log = Path.Combine(dir, "child-session.log");
+                if (File.Exists(log)) Process.Start("explorer.exe", "/select,\"" + log + "\"");
+                else Process.Start("explorer.exe", dir);
+            }
+            catch { }
+        }
+
+        private void AboutBox()
+        {
+            MessageBox.Show(this,
+                "Ray Desktop" + Environment.NewLine +
+                "在现有 Windows 中开启一个独立子会话虚拟桌面，不影响主桌面。" + Environment.NewLine +
+                "开源：github.com/raydoomed/Ray-Desktop" + Environment.NewLine +
+                "作者：raydoomed",
+                "关于 Ray Desktop", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        }
+
+        private void ToggleFullscreen()
+        {
+            fullscreen = !fullscreen;
+            if (fullscreen)
+            {
+                prevBounds = Bounds;
+                prevBorder = FormBorderStyle;
+                FormBorderStyle = FormBorderStyle.None;
+                Bounds = Screen.FromControl(this).Bounds;   // 会话分辨率 = 屏幕原生 → 1:1
+            }
+            else
+            {
+                FormBorderStyle = prevBorder;
+                Bounds = prevBounds;
+            }
+            ApplyLetterbox();
+        }
+
         private void SetStatus(string message)
         {
-            status.Text = message;
             Text = message + " — Ray Desktop";
         }
 
@@ -268,9 +397,10 @@ namespace ChildSessionDesktop
                 if (state == 1)
                 {
                     connecting = false;
-                    SetStatus("已连接到独立 Windows 子会话。此窗口可缩放，主桌面保持独立。");
+                    SetStatus("已连接");
                     statusTimer.Start();
-                    QueueDisplayResize();
+                    if (dynamicMode) QueueDisplayResize();
+                    else ApplyLetterbox();
                     return;
                 }
                 if (state == 2)
@@ -288,6 +418,16 @@ namespace ChildSessionDesktop
                 Program.Log("Begin child-session setup");
                 client.Server = "localhost";
                 Program.Log("Server set");
+                if (!dynamicMode)
+                {
+                    int sw = Screen.PrimaryScreen.Bounds.Width;
+                    int sh = Screen.PrimaryScreen.Bounds.Height;
+                    if (sw <= 0 || sh <= 0) { sw = 1280; sh = 720; }
+                    client.DesktopWidth = sw & ~1;    // RDP 要求偶数像素宽
+                    client.DesktopHeight = sh & ~1;
+                    aspect = (double)(sw & ~1) / (double)(sh & ~1);
+                    Program.Log("Requesting child-session desktop at " + (sw & ~1) + "x" + (sh & ~1) + " from the start (fixed)");
+                }
                 var extended = (IMsRdpExtendedSettings)ocx;
                 Program.Log("QI IMsRdpExtendedSettings succeeded");
                 object connectToChild = true;
@@ -312,8 +452,6 @@ namespace ChildSessionDesktop
                 connecting = false;
                 var message = "连接失败：" + ex.GetBaseException().Message;
                 SetStatus(message);
-                status.Tag = ex.ToString();
-                status.Click += delegate { MessageBox.Show(this, Convert.ToString(status.Tag), "子会话诊断", MessageBoxButtons.OK, MessageBoxIcon.Error); };
             }
         }
 
@@ -424,8 +562,29 @@ namespace ChildSessionDesktop
                 else if (state == 1)
                 {
                     connecting = false;
-                    SetStatus("已连接到独立 Windows 子会话。此窗口可缩放，主桌面保持独立。");
-                    QueueDisplayResize();
+                    SetStatus("已连接");
+                    if (dynamicMode)
+                    {
+                        QueueDisplayResize();
+                    }
+                    else
+                    {
+                        try
+                        {
+                            var c = (IMsRdpClient9)rdp.GetOcxObject();
+                            int dw = c.DesktopWidth, dh = c.DesktopHeight;
+                            if (dw > 0 && dh > 0)
+                            {
+                                aspect = (double)dw / (double)dh;
+                                Program.Log("Session resolution readback " + dw + "x" + dh + "; aspect=" + aspect.ToString("0.0000"));
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            Program.Log("Could not read back session resolution: " + ex.GetBaseException().Message);
+                        }
+                        ApplyLetterbox();
+                    }
                 }
                 else if (state == 2)
                 {
@@ -503,7 +662,7 @@ namespace ChildSessionDesktop
                     if (((IMsRdpClient9)rdp.GetOcxObject()).Connected == 1)
                     {
                         connecting = false;
-                        SetStatus("已连接到独立 Windows 子会话。此窗口可缩放，主桌面保持独立。");
+                        SetStatus("已连接");
                     }
                     else
                     {

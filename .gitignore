@@ -5,8 +5,8 @@ Raydesktop-*.zip
 # 日志
 *.log
 
-# 本地检查/临时文件
-_exeicon_check.png
+# 本地维护笔记（不入库、不公开）
+PROJECT_NOTES.md
 
 # 系统与 IDE
 Thumbs.db
