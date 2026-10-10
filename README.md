@@ -2,22 +2,22 @@
   <img src="assets/RayDesktop-preview.png" width="520" alt="Ray Desktop">
 </p>
 
-<h1 align="center">Ray Desktop · 独立 Windows 桌面</h1>
+<h1 align="center">Ray Desktop · A Separate Windows Desktop</h1>
 
 <p align="center">
-  <a href="README.en.md">English</a> · <a href="README.md">中文</a>
+  <a href="README.md">English</a> · <a href="README.zh-CN.md">中文</a>
 </p>
 
 <p align="center">
-  <b>在当前登录用户的 Windows 里，用一个独立窗口操作另一个桌面会话，不影响主桌面。</b>
+  <b>Use a separate window to operate another desktop session within your current signed-in Windows, without touching the main desktop.</b>
 </p>
 
 <p align="center">
-  <a href="#快速开始">快速开始</a> ·
-  <a href="#技术原理">技术原理</a> ·
-  <a href="#构建">构建</a> ·
-  <a href="#已知限制">已知限制</a> ·
-  <a href="#许可">许可</a>
+  <a href="#quick-start">Quick Start</a> ·
+  <a href="#how-it-works">How It Works</a> ·
+  <a href="#build">Build</a> ·
+  <a href="#known-limitations">Known Limitations</a> ·
+  <a href="#license">License</a>
 </p>
 
 <p align="center">
@@ -28,121 +28,121 @@
 
 ---
 
-**Ray Desktop** 是一个 Windows 桌面程序：主程序在一个普通窗口中显示当前 Windows 用户的 **Child Session（子会话）** 桌面。在你仍可正常使用主桌面的同时，提供了一个单独窗口来操作另一个桌面会话。
+**Ray Desktop** is a Windows desktop application: the host program displays the current Windows user's **Child Session** desktop inside a normal window. While you continue using your main desktop normally, it gives you a separate window to operate another desktop session.
 
-它不是虚拟机，也不是 Windows 的 `Win + Tab` 虚拟桌面。子会话和当前会话使用**同一套 Windows、内核、用户配置、文件及已安装程序**；会话中的桌面、窗口和交互状态相互独立。图像与输入通过 Microsoft Remote Desktop ActiveX 控件连接到本机子会话。
+It is not a virtual machine, nor is it Windows' `Win + Tab` virtual desktops. The Child Session and the current session share the **same Windows, kernel, user profile, files, and installed programs**; the desktop, windows, and interaction state inside the session are independent. Image and input are connected to the local Child Session through the Microsoft Remote Desktop ActiveX control.
 
-> ⚠️ 当前项目仍属**原型**。桌面连接和窗口缩放有实际运行记录；游戏、反作弊、GPU 加速等兼容性没有普遍验证。请先阅读[已知限制](#已知限制)。
+> ⚠️ This project is still a **prototype**. Desktop connection and window scaling have real run records; compatibility with games, anti-cheat, GPU acceleration, etc. is not broadly verified. Please read [Known Limitations](#known-limitations) first.
 
-## 特性
+## Features
 
-- 🖥️ **独立窗口桌面**：另开一个窗口操作子会话，主桌面照常使用
-- ⚡ **免密秒开**：复用当前登录身份，基于 Windows 原生 Child Session 自动登录
-- 🧩 **共享一切**：同一内核与文件系统，软件即装即用，无需单独安装
-- 📋 **剪贴板互通**：文字自动重定向；文件/文件夹通过路径桥接双向复制
-- 🪟 **固定分辨率等比缩放**：会话分辨率固定，窗口缩放为等比 Letterbox，画面不变形、鼠标对齐
-- ⌨️ **快捷键转发**：焦点在子会话时，`Win` 组合键由子会话处理
-- 🔌 **随关随清**：关闭窗口时自动注销子会话
+- 🖥️ **Separate-window desktop**: open another window to operate the Child Session while the main desktop keeps working
+- ⚡ **Password-free, instant start**: reuses the current sign-in identity and auto-logs in via Windows-native Child Session
+- 🧩 **Everything shared**: same kernel and file system, software is ready to use, no separate install
+- 📋 **Clipboard interop**: text is redirected automatically; files/folders are copied both ways via a path bridge
+- 🪟 **Fixed-resolution aspect scaling**: session resolution is fixed; the window scales as an aspect-preserving Letterbox, so the picture never deforms and the mouse stays aligned
+- ⌨️ **Shortcut forwarding**: while the Child Session has focus, `Win` key combinations are handled by the Child Session
+- 🔌 **Clean exit**: closing the window automatically logs off the Child Session
 
-## 界面预览
+## UI Preview
 
 <p align="center">
-  <img src="assets/screenshot.jpg" width="800" alt="Ray Desktop 运行界面">
+  <img src="assets/screenshot.jpg" width="800" alt="Ray Desktop running UI">
 </p>
 
-## 快速开始
+## Quick Start
 
 ```powershell
-# 1. 确认系统已开启远程桌面（Child Sessions 依赖此项）
-#    设置 → 系统 → 远程桌面 → 开启
+# 1. Make sure Remote Desktop is enabled on the system (Child Sessions depend on it)
+#    Settings → System → Remote Desktop → On
 
-# 2. 启动（首次会弹出 UAC 启用 Child Sessions）
+# 2. Launch (first run pops a UAC prompt to enable Child Sessions)
 & '.\Raydesktop\Raydesktop.exe'
 ```
 
-**首次运行流程：**
+**First-run flow:**
 
-1. 启动 `Raydesktop.exe`，程序通过 `WTSIsChildSessionsEnabled` 检查子会话状态。
-2. 若尚未启用，程序以 `runas` 启动同目录的 `EnableChildSessions.exe`，Windows 显示 UAC 提示。
-3. 批准后，辅助程序调用 `WTSEnableChildSessions(true)` 并验证，显示结果。
-4. 若功能是在**本次登录期间**刚刚启用：保存工作 → 注销 Windows → 重新登录 → 再启动主程序（辅助程序不会替你注销/重新登录）。
-5. 若功能原本已启用，主程序直接连接 `localhost` 的 Child Session。
+1. Start `Raydesktop.exe`; the program checks Child Session state via `WTSIsChildSessionsEnabled`.
+2. If not yet enabled, the program launches the adjacent `EnableChildSessions.exe` with `runas` and Windows shows a UAC prompt.
+3. After approval, the helper calls `WTSEnableChildSessions(true)` and verifies it, then shows the result.
+4. If the feature was just enabled **during this logon session**: save your work → sign out of Windows → sign back in → start the main program again (the helper will not sign you out/in).
+5. If the feature was already enabled, the main program connects directly to the localhost Child Session.
 
-> 🔑 **首次启用后若出现凭据提示，不要输入空密码。** 取消提示，保存工作，注销并重新登录后再启动。Microsoft 文档说明 Child Session 通常自动登录，但父会话用智能卡登录、或在启用前已登录父会话时不适用。这不是为本程序设置密码。
+> 🔑 **If a credential prompt appears after the first enable, do not enter an empty password.** Cancel the prompt, save your work, sign out and sign back in, then start again. Microsoft documents that Child Sessions normally log in automatically, but this does not apply when the parent session uses smart-card login or was signed in before enabling. This is not about setting a password for this program.
 
-## 技术原理
+## How It Works
 
 ```text
-WinForms 宿主启动
+WinForms host starts
     │
-    ├─ WTSIsChildSessionsEnabled 检查状态
-    │     ├─ 未启用 → UAC 启动 EnableChildSessions.exe
-    │     └─ 已启用
+    ├─ WTSIsChildSessionsEnabled checks state
+    │     ├─ not enabled → UAC-launch EnableChildSessions.exe
+    │     └─ enabled
     │
-    ├─ 创建 Microsoft RDP ActiveX 控件（CLSID 8b918b82-7985-4c24-89df-c33ad2bbfbcd）
+    ├─ Create Microsoft RDP ActiveX control (CLSID 8b918b82-7985-4c24-89df-c33ad2bbfbcd)
     ├─ Server = localhost
-    ├─ ConnectToChildSession = true        # 关键：连接本机子会话，而非远程电脑
-    ├─ 启用 CredSSP、SmartSizing、剪贴板/驱动器重定向与 Windows 快捷键转发
-    ├─ 调用 Connect()
-    ├─ 监视 Connected 状态并订阅 RDP 事件
-    └─ 连接完成后将宿主控件尺寸同步为子会话显示尺寸
+    ├─ ConnectToChildSession = true        # key: connect to the local Child Session, not a remote machine
+    ├─ Enable CredSSP, SmartSizing, clipboard/drive redirection and Windows shortcut forwarding
+    ├─ Call Connect()
+    ├─ Monitor Connected state and subscribe to RDP events
+    └─ After connection, sync host control size to the Child Session display size
 ```
 
-核心机制是 **Windows 11 原生 Child Session 特性**：同一个 Windows 内核 fork 出并列的交互会话，共享用户配置、文件与已安装软件，因此可以免密、秒开、不顶掉主桌面。程序自身不做沙盒或虚拟化。
+The core mechanism is the **Windows 11 native Child Session feature**: the same Windows kernel forks a parallel interactive session that shares the user profile, files, and installed software, so it can start password-free, instantly, without displacing the main desktop. The program itself does no sandboxing or virtualization.
 
-## 目录结构
+## Directory Layout
 
 ```text
 .
-├─ assets/                                 # 资源文件
-│  ├─ RayDesktop.ico                       # 程序图标
-│  ├─ RayDesktop-preview.png               # README 顶部品牌锁版
-│  └─ screenshot.jpg                       # 界面预览图
-├─ build.ps1                               # Windows 本机构建脚本
-├─ LICENSE                                 # MIT 许可
-├─ README.md                               # 本说明文档
-├─ Raydesktop/                             # 构建输出（与 src 同级，已 gitignore，经 Releases 分发）
-│  ├─ Raydesktop.exe                       # 主程序
-│  ├─ EnableChildSessions.exe              # 启用功能的 UAC 辅助程序
-│  ├─ MSTSCLib.dll                         # RDP COM 互操作程序集
-│  └─ AxInterop.MSTSCLib.dll               # RDP ActiveX WinForms 包装程序集
+├─ assets/                                 # Resource files
+│  ├─ RayDesktop.ico                       # Program icon
+│  ├─ RayDesktop-preview.png               # Brand lockup at the top of the README
+│  └─ screenshot.jpg                       # UI preview image
+├─ build.ps1                               # Windows local build script
+├─ LICENSE                                 # MIT license
+├─ README.md                               # This documentation
+├─ Raydesktop/                             # Build output (sibling of src, gitignored, distributed via Releases)
+│  ├─ Raydesktop.exe                       # Main program
+│  ├─ EnableChildSessions.exe              # UAC helper to enable the feature
+│  ├─ MSTSCLib.dll                         # RDP COM interop assembly
+│  └─ AxInterop.MSTSCLib.dll               # RDP ActiveX WinForms wrapper assembly
 └─ src/
    ├─ ChildSessionDesktop/
-   │  ├─ Program.cs                        # 桌面宿主窗体、RDP ActiveX、连接与缩放逻辑
-   │  ├─ ClipboardFileRelay.cs             # 同一文件系统下的双向文件剪贴板桥接
-   │  └─ app.manifest                      # 主程序清单：Per-Monitor V2 DPI、asInvoker
+   │  ├─ Program.cs                        # Desktop host form, RDP ActiveX, connect & scaling logic
+   │  ├─ ClipboardFileRelay.cs             # Two-way file clipboard bridging over the shared file system
+   │  └─ app.manifest                      # Main program manifest: Per-Monitor V2 DPI, asInvoker
    └─ ChildSessionSetup/
-      ├─ Program.cs                        # 启用 Child Sessions 的管理员辅助程序源码
-      └─ app.manifest                      # 要求管理员权限（requireAdministrator）
+      ├─ Program.cs                        # Source of the admin helper that enables Child Sessions
+      └─ app.manifest                      # Requires administrator (requireAdministrator)
 ```
 
-`src\ChildSessionDesktop` 与 `src\ChildSessionSetup` 是源码目录，构建与后续开发需要保留。**一般用户运行时不需要源码目录**：应将整个 `Raydesktop` 文件夹交付给用户（见[发布](#发布)），不能只复制主 EXE。程序会在 EXE 同目录写入 `child-session.log`。
+`src\ChildSessionDesktop` and `src\ChildSessionSetup` are source directories and must be kept for building and future development. **End users do not need the source directories at runtime**: deliver the whole `Raydesktop` folder to users (see [Release](#release)), not just the main EXE. The program writes `child-session.log` next to the EXE.
 
-## 环境要求
+## Environment Requirements
 
-### 构建机器
+### Build machine
 
-- Windows，且提供系统自带的 .NET Framework C# 编译器 `csc.exe`。
-- Windows SDK .NET Framework 工具中的 `AxImp.exe`。构建脚本从以下位置查找：
+- Windows with the built-in .NET Framework C# compiler `csc.exe`.
+- `AxImp.exe` from the Windows SDK .NET Framework tools. The build script looks here:
   `C:\Program Files (x86)\Microsoft SDKs\Windows\v10.0A\bin\NETFX 4.8 Tools\AxImp.exe`
-- Windows 自带的 `mstscax.dll`，脚本从 `%WINDIR%\System32\mstscax.dll` 生成 RDP ActiveX 包装程序集。
-- 不需要 NuGet 包或虚拟机。
+- The Windows-built-in `mstscax.dll`; the script generates the RDP ActiveX wrapper assembly from `%WINDIR%\System32\mstscax.dll`.
+- No NuGet packages or a virtual machine needed.
 
-### 运行机器
+### Run machine
 
-- Child Sessions API 的最低客户端版本为 Windows 8、最低服务器版本为 Windows Server 2012；但并非所有 Windows 版本/版本类型/策略/账户状态都能连接，目标机需逐台确认。参见 [Microsoft Child Sessions 文档](https://learn.microsoft.com/windows/win32/termserv/child-sessions)。
-- 需要允许程序连接本机 Child Session；首次启用时需管理员通过 UAC。
-- 运行依赖文件需和主程序放在同一文件夹。
+- Child Sessions API requires a minimum client of Windows 8 and server of Windows Server 2012; but not every Windows version/edition/policy/account state can connect, so verify on each target machine. See [Microsoft Child Sessions documentation](https://learn.microsoft.com/windows/win32/termserv/child-sessions).
+- The program must be allowed to connect to the local Child Session; first enabling requires an admin UAC approval.
+- Runtime dependency files must sit in the same folder as the main program.
 
-## 构建
+## Build
 
-在项目根目录打开 PowerShell：
+Open PowerShell in the project root:
 
 ```powershell
 .\build.ps1
 ```
 
-成功后会生成/更新：
+On success it generates/updates:
 
 ```text
 Raydesktop\Raydesktop.exe
@@ -151,144 +151,144 @@ Raydesktop\MSTSCLib.dll
 Raydesktop\AxInterop.MSTSCLib.dll
 ```
 
-脚本会在系统临时目录生成 ActiveX 互操作程序集，在宿主输出目录先写临时 EXE 再发布成最终文件；无论成功或失败都会清理临时文件。启动：
+The script generates the ActiveX interop assemblies in the system temp directory, writes a temporary EXE in the host output directory, then publishes it as the final file; it cleans up temp files on success or failure. To run:
 
 ```powershell
 & '.\Raydesktop\Raydesktop.exe'
 ```
 
-如需重新编译某一份拷贝，应在具备上述构建工具的 Windows 开发环境中保留整个项目目录。
+To recompile a copy, keep the whole project directory in a Windows dev environment with the build tools above.
 
-## 发布
+## Release
 
-建议用 GitHub **Releases** 分发，而不是把构建产物提交进仓库（`.gitignore` 已排除 `Raydesktop`）。每次发版：
+Use GitHub **Releases** for distribution rather than committing build output into the repo (`.gitignore` excludes `Raydesktop`). Per release:
 
-1. 在开发机运行 `build.ps1` 得到四个交付文件。
-2. 将整个 `Raydesktop` 目录打包成 ZIP 上传为 Release 资产。
-3. 在 Release 说明中标注目标 Windows 版本与已验证的范围。
+1. Run `build.ps1` on the dev machine to get the four deliverable files.
+2. Zip the whole `Raydesktop` directory and upload it as a Release asset.
+3. Note the target Windows version and the verified scope in the Release notes.
 
-## 运行时工作流程
+## Runtime Workflow
 
-### 连接状态
+### Connection status
 
-程序读取 `IMsRdpClient9.Connected`：
+The program reads `IMsRdpClient9.Connected`:
 
-- `0`：未连接/已断开。
-- `1`：已连接。
-- `2`：连接中。
+- `0`: not connected / disconnected.
+- `1`: connected.
+- `2`: connecting.
 
-状态每 750 毫秒检查一次；连接超过 45 秒仍处于连接中时，程序尝试断开并在状态栏提示超时。RDP 控件的断开、致命错误和登录错误事件会记录错误码。点击连接按钮会再次检查；若已连接或正在连接，不会重复调用 `Connect()`。
+The status is checked every 750 ms; if a connection stays in "connecting" for more than 45 seconds, the program disconnects and shows a timeout in the status bar. The RDP control's disconnect, fatal-error, and logon-error events are logged with error codes. Clicking the connect button re-checks; it never calls `Connect()` twice if already connected or connecting.
 
-### 分辨率与窗口缩放
+### Resolution & window scaling
 
-会话桌面分辨率在启动时**固定**为主机完整分辨率（例如主机 3440×1440 → 会话 3440×1440）。窗口默认按主机比例取 90% 宽等比显示；拖动缩放时窗口比例被锁定为主机比例，画面做等比缩放（Letterbox），分辨率本身不变。
+The session desktop resolution is **fixed** at startup to the host's full resolution (e.g. host 3440×1440 → session 3440×1440). By default the window takes 90% of the host width at the host aspect; when you drag-resize, the window aspect is locked to the host aspect and the picture scales as an aspect-preserving Letterbox; the resolution itself does not change.
 
-由于分辨率固定、窗口只是等比缩放，**游戏窗口化运行即不变形、鼠标对齐**，不需要先定窗口再开游戏、玩时别拉窗口。默认即此模式；如需要分辨率随窗口实时变化，可用 `--dynamic` 参数启动（对无边框窗口化游戏不适用，画面会被拉伸）。
+Because the resolution is fixed and the window only scales proportionally, **running a game windowed means no deformation and aligned mouse** — no need to size the window before starting a game or avoid resizing it mid-play. This is the default mode; if you want the resolution to change with the window in real time, launch with `--dynamic` (not suitable for borderless-windowed games, the picture gets stretched).
 
-窗口最小尺寸保持主机比例（宽度 `640` 起，高度按比例）；会话显示尺寸限制在 200–8192 像素，宽度调整为偶数。
+The minimum window size keeps the host aspect (width from `640`, height proportional); the session display size is limited to 200–8192 pixels, and width is rounded to an even number.
 
-### 剪贴板与文件复制
+### Clipboard & file copy
 
-文字和常规剪贴板格式继续使用 RDP ActiveX 的自动剪贴板重定向。文件/文件夹使用**本机路径桥接**——两个会话共享用户配置与文件系统，但剪贴板彼此独立。用户仍在资源管理器中右键复制/粘贴或 `Ctrl+C`/`Ctrl+V`，无需额外按钮。
+Text and normal clipboard formats keep using the RDP ActiveX automatic clipboard redirection. Files/folders use a **local path bridge** — the two sessions share the user profile and file system, but the clipboards are independent. You keep right-click copy/paste or `Ctrl+C`/`Ctrl+V` in Explorer, with no extra button.
 
-实现流程：
+Implementation flow:
 
-1. 宿主窗体使用自身窗口句柄，Child Session 内的代理使用不可见消息窗口，均通过 `AddClipboardFormatListener` 接收剪贴板变更通知。代理由同一 EXE 用 `--clipboard-agent --parent-session <会话 ID>` 参数启动。
-2. 代理只处理 Windows 标准 `CF_HDROP` 文件路径列表。新剪贴板内容编码为消息 ID 与路径列表，写入 `%LOCALAPPDATA%\ChildSessionDesktop\ClipboardBridge` 下的 `host-to-child.bin` / `child-to-host.bin`。先写唯一临时文件再原子替换，避免另一侧读到半条消息。
-3. 另一会话每 250 毫秒检查信箱，收到后通过 `Clipboard.SetFileDropList` 设置标准文件剪贴板格式。消息 ID、路径指纹与剪贴板序列号用于去重与抑制回传回环；剪贴板被其他程序占用时由定时器继续重试。
-4. 文件内容本身不经过桥接——两侧使用相同本机路径，资源管理器直接访问同一文件；这是路径列表同步，不是字节传输。
+1. The host form uses its own window handle; the agent inside the Child Session uses an invisible message window; both receive clipboard change notifications via `AddClipboardFormatListener`. The agent is started from the same EXE with `--clipboard-agent --parent-session <session id>`.
+2. The agent only handles the standard Windows `CF_HDROP` file path list. New clipboard content is encoded as a message id plus the path list, written to `%LOCALAPPDATA%\ChildSessionDesktop\ClipboardBridge` as `host-to-child.bin` / `child-to-host.bin`. A unique temp file is written first, then atomically replaced, so the other side never reads a half message.
+3. The other session polls the mailbox every 250 ms and sets the standard file clipboard format via `Clipboard.SetFileDropList`. Message ids, path fingerprints, and clipboard sequence numbers are used to deduplicate and suppress echo loops; if the clipboard is occupied by another program, a timer keeps retrying.
+4. File content itself never crosses the bridge — both sides use the same local path and Explorer accesses the same file directly; this is path-list synchronization, not byte transfer.
 
-程序在当前用户的 `HKCU\...\Run` 注册隐藏代理启动参数，不需要管理员权限；登录时代理仅在非主控制台且不同于注册时宿主会话的会话启动。关闭宿主窗口时程序请求注销 Child Session，并清除信箱中的两条消息。
+The program registers a hidden agent startup argument under the current user's `HKCU\...\Run` and needs no admin rights; at logon the agent starts only in a non-primary console session different from the host session it was registered in. When the host window closes, the program requests a Child Session logoff and clears both mailbox messages.
 
-支持资源管理器可表示为本地路径的文件/文件夹；不支持邮件附件等无本机路径的虚拟文件对象。关闭程序后 Run 注册项仍保留，便于下次 Child Session 登录时启动代理；代理在主控制台会话会立即退出。
+File/folders that Explorer can represent as local paths are supported; virtual file objects without a local path (e.g. mail attachments) are not. The Run entry persists after closing the program, so the agent can start on the next Child Session logon; the agent exits immediately in the primary console session.
 
-### Windows 快捷键
+### Windows shortcuts
 
-连接前设置 `KeyboardHookMode = 1` 将 Windows 键盘组合发送到子会话，并启用 `EnableWindowsKey` 与 `AcceleratorPassthrough`。焦点在子会话画面内时，`Win`、`Win + R` 等组合由子会话处理；焦点不在 RDP 画面时，快捷键仍由主桌面处理。`KeyboardHookMode` 不能连接后修改，故在 `Connect()` 前设置。
+Before connecting, `KeyboardHookMode = 1` sends Windows key combos to the Child Session, and `EnableWindowsKey` plus `AcceleratorPassthrough` are enabled. While the Child Session picture has focus, `Win`, `Win + R`, etc. are handled by the Child Session; when focus is not on the RDP picture, shortcuts are still handled by the main desktop. `KeyboardHookMode` cannot be changed after connect, so it is set before `Connect()`.
 
-### 关闭程序
+### Closing the program
 
-关闭宿主窗体时，程序先调用 `Disconnect()`，再通过 `WTSGetChildSessionId` 获取子会话 ID 并调用 `WTSLogoffSession` 注销子会话。子会话中的程序会随注销结束，请先保存未保存的工作。注销请求异步提交，日志记录是否提交成功；Windows 会话管理器完成实际清理。
+When the host window closes, the program first calls `Disconnect()`, then resolves the Child Session id via `WTSGetChildSessionId` and logs it off via `WTSLogoffSession`. Programs inside the Child Session end with the logoff, so save unsaved work first. The logoff request is submitted asynchronously and the log records whether it was accepted; the Windows session manager does the actual cleanup.
 
-## 关键实现位置
+## Key Implementation Locations
 
 ### `src\ChildSessionDesktop\Program.cs`
 
-- `Program.Log`：将运行时间与诊断信息追加到 EXE 同目录的 `child-session.log`。
-- `DesktopForm.LogRedirectionDiagnostics`：连接后记录 RDP 剪贴板与磁盘重定向状态，并记录本机文件路径桥接已启动。
-- `Program.WTSIsChildSessionsEnabled`：从 `wtsapi32.dll` 导入状态检测 API。
-- `Program.WTSGetChildSessionId` / `WTSLogoffSession`：关闭宿主窗口时定位并注销 Child Session。
-- `DesktopForm.ConnectChildSession`：检查启用状态、配置 RDP COM 对象、打开剪贴板重定向并开始连接。
-- `DesktopForm.RequestEnableChildSessions`：通过 UAC 启动管理员辅助程序。
-- `DesktopForm.UpdateConnectionStatus`：读取 RDP 连接状态并处理连接超时。
-- `DesktopForm.HandleDisconnected` / `HandleFatalError` / `HandleLogonError`：处理 RDP 事件并更新状态栏/日志。
-- `DesktopForm.QueueDisplayResize` / `ApplyDisplaySize`：防抖、发送显示尺寸与失败重试。
-- `ChildSessionControl`：以 RDP ActiveX CLSID `8b918b82-7985-4c24-89df-c33ad2bbfbcd` 承载远程会话。
+- `Program.Log`: appends runtime time and diagnostics to `child-session.log` next to the EXE.
+- `DesktopForm.LogRedirectionDiagnostics`: after connecting, logs RDP clipboard and disk redirection state, and that the local file path bridge has started.
+- `Program.WTSIsChildSessionsEnabled`: imports the state-check API from `wtsapi32.dll`.
+- `Program.WTSGetChildSessionId` / `WTSLogoffSession`: locate and log off the Child Session when the host window closes.
+- `DesktopForm.ConnectChildSession`: checks enabled state, configures the RDP COM object, enables clipboard redirection, and starts connecting.
+- `DesktopForm.RequestEnableChildSessions`: UAC-launches the admin helper.
+- `DesktopForm.UpdateConnectionStatus`: reads RDP connection state and handles connection timeout.
+- `DesktopForm.HandleDisconnected` / `HandleFatalError` / `HandleLogonError`: handle RDP events and update the status bar / log.
+- `DesktopForm.QueueDisplayResize` / `ApplyDisplaySize`: debounce, send display size, and retry on failure.
+- `ChildSessionControl`: hosts the remote session with RDP ActiveX CLSID `8b918b82-7985-4c24-89df-c33ad2bbfbcd`.
 
 ### `src\ChildSessionDesktop\ClipboardFileRelay.cs`
 
-- `ClipboardFileRelay`：监听 `CF_HDROP` 剪贴板变化，读写双向信箱、应用文件路径列表并抑制回环；不复制文件数据。
-- `ClipboardAgentContext` / `ClipboardAgentWindow`：在 Child Session 内运行无界面代理窗口与 250ms 信箱轮询。
-- `RegisterChildAgent` / `ShouldRunChildAgent`：注册当前用户启动项，并避免代理在主控制台或父会话常驻。
+- `ClipboardFileRelay`: listens for `CF_HDROP` clipboard changes, reads/writes the two-way mailbox, applies the file path list, and suppresses echo loops; does not copy file data.
+- `ClipboardAgentContext` / `ClipboardAgentWindow`: run an invisible agent window and 250 ms mailbox polling inside the Child Session.
+- `RegisterChildAgent` / `ShouldRunChildAgent`: register the current user startup entry and avoid the agent lingering in the primary console or parent session.
 
 ### `src\ChildSessionSetup\Program.cs`
 
-调用 `WTSEnableChildSessions(true)` 启用功能，并用 `WTSIsChildSessionsEnabled` 检查结果；`app.manifest` 声明 `requireAdministrator`，运行时由 Windows 显示 UAC。
+Calls `WTSEnableChildSessions(true)` to enable the feature and verifies it with `WTSIsChildSessionsEnabled`; `app.manifest` declares `requireAdministrator`, and Windows shows UAC at runtime.
 
-## 日志与故障排查
+## Logs & Troubleshooting
 
-日志位置：`Raydesktop.exe 同目录\child-session.log`（UTF-8 BOM，便于记事本显示中文）。日志可能含连接时间、状态变化、系统错误码与异常文本；提交给开发者前可先遮盖用户名、计算机名等个人信息。
+Log location: `Raydesktop.exe 同目录\child-session.log` (UTF-8 BOM, so Notepad shows Chinese well). The log may contain connection times, state changes, system error codes, and exception text; redact personal info such as user names and computer names before sending to a developer.
 
-首次使用时，宿主程序会尝试写入当前用户的 Run 启动项；Child Session 登录时 Windows 再尝试启动隐藏代理。需要在宿主与 Child Session 两侧各做一次文件/文件夹复制粘贴验证。若日志出现 “Registered the automatic child-session file clipboard bridge” 但没有 “Child-session file clipboard agent started”，只能说明日志中没有代理启动记录；还需检查 Run 项命令、代理进程所在会话及系统策略/安全软件，不能仅凭缺少该日志判断启动项被拦截。
+On first use the host program tries to write a Run entry for the current user; at Child Session logon Windows then tries to start the hidden agent. Validate file/folder copy-paste on both the host and Child Session sides. If the log shows “Registered the automatic child-session file clipboard bridge” but not “Child-session file clipboard agent started”, that only means there is no agent-start record in the log; also check the Run entry command, the agent process session, and system policy/security software — a missing log line alone does not prove the startup entry was blocked.
 
-| 现象/日志 | 含义与处理 |
+| Symptom / log | Meaning & handling |
 |---|---|
-| `Child sessions are disabled on this computer` | 功能未启用。检查是否出现 UAC；确认辅助程序与主程序放在一起。启用后若仍不能登录，注销并重新登录 Windows。 |
-| 出现账号/密码提示，空密码被拒绝 | 若本次登录期间刚启用 Child Sessions，取消提示，注销并重新登录后再启动。不要为绕过提示设置或保存密码。 |
-| `0x00000C07` | Microsoft 定义为 `SSL_ERR_ACCOUNT_RESTRICTION`（账户受限）。确认启用与注销/重新登录流程已完成，并检查账户与策略；该码不能单独证明是空密码导致。参见 [OnDisconnected](https://learn.microsoft.com/windows/win32/termserv/imstscaxevents-ondisconnected)。 |
-| `0x00000001` | Microsoft 定义为本地断开，且不是错误码。若在连接建立前出现，不能据此判断子会话是否曾短暂建立；结合前后日志与 `Connected` 状态排查。 |
-| 连接状态长期为 `2` | 45 秒后提示超时。检查 Windows 版本、Child Sessions 状态、登录时机与系统策略。 |
-| `UpdateSessionDisplaySettings` 返回 `0x8000FFFF` | 仅 `--dynamic` 模式下的动态分辨率更新失败。程序会延迟并重试；默认固定分辨率模式不涉及此调用。 |
-| Windows 正在继续登录 | Child Session 登录过程中的正常通知，不代表失败；程序按信息事件处理。 |
-| “缺少管理员启用程序” | 交付不完整。重新复制整个 `Raydesktop` 文件夹。 |
-| COM/ActiveX 创建失败 | 确认 Windows 自带 `mstscax.dll` 可用、程序与 DLL 在同目录，并在目标 Windows 版本上重新构建/验证。 |
+| `Child sessions are disabled on this computer` | Feature not enabled. Check whether UAC appeared; make sure the helper sits with the main program. If you still cannot log in after enabling, sign out and sign back into Windows. |
+| Account/password prompt, empty password rejected | If Child Sessions was just enabled during this logon session, cancel the prompt, sign out and sign back in, then start again. Do not set or save a password to bypass the prompt. |
+| `0x00000C07` | Microsoft defines it as `SSL_ERR_ACCOUNT_RESTRICTION` (account restricted). Confirm the enable and sign-out/sign-in flow completed, and check the account and policy; this code alone does not prove an empty password. See [OnDisconnected](https://learn.microsoft.com/windows/win32/termserv/imstscaxevents-ondisconnected). |
+| `0x00000001` | Microsoft defines it as a local disconnect, not an error code. If it appears before the connection is established, you cannot conclude from it whether the Child Session briefly came up; investigate with the surrounding log and `Connected` state. |
+| Connection state stuck at `2` | Timeout after 45 s. Check Windows version, Child Sessions state, logon timing, and system policy. |
+| `UpdateSessionDisplaySettings` returns `0x8000FFFF` | Dynamic resolution update failed in `--dynamic` mode only. The program delays and retries; the default fixed-resolution mode never makes this call. |
+| Windows is continuing the sign-in | A normal notification during Child Session logon, not a failure; the program treats it as an informational event. |
+| “缺少管理员启用程序” (missing admin enable program) | Incomplete delivery. Re-copy the whole `Raydesktop` folder. |
+| COM/ActiveX creation failed | Confirm Windows' `mstscax.dll` is available, the program and DLLs are in the same folder, and rebuild/verify on the target Windows version. |
 
-对于断开码，微软建议使用 RDP 控件 `GetErrorDescription` 结合 `ExtendedDisconnectReason` 获取具体描述；当前版本尚未实现该扩展诊断。
+For disconnect codes, Microsoft recommends using the RDP control's `GetErrorDescription` with `ExtendedDisconnectReason` to get a concrete description; the current version does not implement this extended diagnostics yet.
 
-## 安全与隐私
+## Security & Privacy
 
-- 子会话与主会话属于**同一 Windows 用户环境，不是安全边界**。两边共享用户数据、软件安装、内核及可访问资源。
-- 管理员辅助程序需要 UAC 授权才能启用 Child Sessions。
-- 程序不会要求或保存 Windows 密码；日志只写在程序目录。
-- 若在多人共用或受管理的电脑上部署，应先确认管理员策略允许启用该功能，并由设备所有者处理授权。
+- The Child Session and main session belong to the **same Windows user environment and are not a security boundary**. Both share user data, software installs, the kernel, and accessible resources.
+- The admin helper needs UAC approval to enable Child Sessions.
+- The program never asks for or stores a Windows password; logs are written only in the program directory.
+- If deployed on a multi-user or managed machine, first confirm admin policy allows enabling the feature and let the device owner handle authorization.
 
-## 已知限制
+## Known Limitations
 
-- 这是通过本机 RDP ActiveX 显示的 Child Session，不是 `Win + Tab` 虚拟桌面，也不是 Hyper-V 虚拟机。
-- 所有依赖当前交互桌面、控制台会话或特定显卡路径的程序不保证可用。
-- 游戏、反作弊、GPU 加速、独占全屏、Raw Input、DRM 视频、摄像头和音频重定向尚未全面验证。
-- 同一 Windows 用户、系统版本、组策略与 Child Sessions 启用时机都会影响免密连接；不能承诺复制程序到任意电脑后即刻可用。
-- 当前没有安装包/自动更新、设置页、详细的 RDP 错误描述、分辨率配置或会话管理界面。
-- 若需求是可靠的隔离环境、独立 GPU/游戏兼容性或跨设备一致性，应评估 Hyper-V 虚拟机、Windows Sandbox 或独立 Windows 账户等方案。
+- This is a Child Session shown through local RDP ActiveX, not a `Win + Tab` virtual desktop or a Hyper-V VM.
+- Anything that depends on the current interactive desktop, console session, or a specific GPU path is not guaranteed to work.
+- Games, anti-cheat, GPU acceleration, exclusive fullscreen, Raw Input, DRM video, camera, and audio redirection are not fully verified.
+- The same Windows user, OS version, group policy, and when Child Sessions were enabled all affect password-free connection; we cannot promise it works the moment the program is copied to an arbitrary machine.
+- There is currently no installer/auto-update, settings page, detailed RDP error descriptions, resolution config, or session-management UI.
+- If you need a reliable isolation environment, independent GPU/game compatibility, or cross-device consistency, evaluate Hyper-V VM, Windows Sandbox, or a separate Windows account.
 
-### 游戏兼容性
+### Game compatibility
 
-游戏以**窗口化或无边框窗口化**模式运行即可，画面不变形、鼠标对齐。会话分辨率固定后，窗口任意缩放都只是等比 Letterbox，游戏内部渲染不变，不再需要先定窗口、玩时别拉窗口。
+Run the game in **windowed or borderless-windowed** mode and the picture stays undeformed with aligned mouse. With the session resolution fixed, any window resize is just aspect-preserving Letterbox; the game's internal rendering does not change, so you no longer need to size the window first or avoid resizing mid-play.
 
-**游戏启动失败的常见坑**：游戏保存的显示配置若为"全屏 + 非当前显示器支持的整屏分辨率"，会因找不到对应全屏模式而启动失败。例如文明6 的 `%LOCALAPPDATA%\Firaxis Games\Sid Meier's Civilization VI\AppOptions.txt` 中 `FullScreen 1` 且 `RenderWidth/Height` 与当前显示器模式不匹配时，游戏会报 `Unable to find correct DXGI mode` 而进不去。恢复办法：把该文件 `FullScreen` 改为 `0`（窗口模式），或设为当前显示器支持的整屏分辨率后重启游戏。
+**Common pitfall that makes a game fail to start**: if the game's saved display config is "fullscreen + a full-screen resolution the current monitor does not support", it fails to start because it cannot find a matching fullscreen mode. For example Civ 6's `%LOCALAPPDATA%\Firaxis Games\Sid Meier's Civilization VI\AppOptions.txt` with `FullScreen 1` and a `RenderWidth/Height` that does not match the current monitor mode makes the game report `Unable to find correct DXGI mode` and refuse to enter. Fix: change that file's `FullScreen` to `0` (windowed), or set a full-screen resolution the current monitor supports and restart the game.
 
-## 开发与验证建议
+## Development & Verification Suggestions
 
-1. 修改宿主程序时编辑 `src\ChildSessionDesktop\Program.cs`；修改启用逻辑时编辑 `src\ChildSessionSetup\Program.cs` 或清单。
-2. 在 Windows 开发机运行 `build.ps1`，确认四个交付文件均生成在 `Raydesktop`。
-3. 在目标 Windows 版本的独立测试电脑上验证：首次 UAC 启用、注销后连接、断开重连、窗口缩放、关闭宿主，以及日志诊断。
-4. 修改 RDP COM/ActiveX 设置后，优先在测试环境验证连接状态与错误事件；不要只依据 `Connect()` 返回认定会话成功，最终应观察 `Connected=1` 及远端桌面是否可交互。
-5. 发布时交付整个 `Raydesktop` 目录，并在每个目标 Windows 版本上单独验证兼容性。
+1. When modifying the host, edit `src\ChildSessionDesktop\Program.cs`; when modifying the enable logic, edit `src\ChildSessionSetup\Program.cs` or its manifest.
+2. Run `build.ps1` on a Windows dev machine and confirm all four deliverables land in `Raydesktop`.
+3. Verify on a separate test PC with the target Windows version: first UAC enable, connect after sign-out, disconnect-reconnect, window scaling, closing the host, and log diagnostics.
+4. After changing RDP COM/ActiveX settings, validate connection state and error events in a test environment first; don't rely only on the `Connect()` return to conclude the session succeeded — finally observe `Connected=1` and that the remote desktop is interactive.
+5. Deliver the whole `Raydesktop` directory and verify compatibility separately on each target Windows version.
 
-## 许可
+## License
 
 [MIT](LICENSE) © [raydoomed](https://github.com/raydoomed)
 
-## 作者
+## Author
 
-维护者：[raydoomed](https://github.com/raydoomed)
+Maintainer: [raydoomed](https://github.com/raydoomed)
