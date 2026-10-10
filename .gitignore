@@ -14,3 +14,6 @@ Desktop.ini
 .vs/
 *.user
 *.suo
+
+# 发布说明（本地保留，GitHub Release 页为准，不入库）
+release-notes/

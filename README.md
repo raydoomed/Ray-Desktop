@@ -105,10 +105,11 @@ WinForms 宿主启动
 └─ src/
    ├─ ChildSessionDesktop/
    │  ├─ Program.cs                        # 桌面宿主窗体、RDP ActiveX、连接与缩放逻辑
-   │  └─ ClipboardFileRelay.cs             # 同一文件系统下的双向文件剪贴板桥接
+   │  ├─ ClipboardFileRelay.cs             # 同一文件系统下的双向文件剪贴板桥接
+   │  └─ app.manifest                      # 主程序清单：Per-Monitor V2 DPI、asInvoker
    └─ ChildSessionSetup/
       ├─ Program.cs                        # 启用 Child Sessions 的管理员辅助程序源码
-      └─ app.manifest                      # 要求管理员权限
+      └─ app.manifest                      # 要求管理员权限（requireAdministrator）
 ```
 
 `src\ChildSessionDesktop` 与 `src\ChildSessionSetup` 是源码目录，构建与后续开发需要保留。**一般用户运行时不需要源码目录**：应将整个 `Raydesktop` 文件夹交付给用户（见[发布](#发布)），不能只复制主 EXE。程序会在 EXE 同目录写入 `child-session.log`。
