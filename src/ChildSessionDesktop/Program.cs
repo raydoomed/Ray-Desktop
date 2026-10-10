@@ -168,6 +168,8 @@ namespace ChildSessionDesktop
         private double aspect;
         private int currentSessW, currentSessH;   // 当前生效的会话分辨率（用于分辨率下拉打勾）
         private int fsEnterW, fsEnterH;           // 进入全屏时的会话分辨率（退出时判断是否改过）
+        private bool _resChangePending;           // 改分辨率期间屏蔽 UpdateConnectionStatus 的旧值 readback 干扰
+        private bool _lastMaximized;              // 检测最大化状态切换：进最大化时重置工具栏偏移（还原后也回顶部居中）
         private int _lbLastW = -1, _lbLastH = -1;
         private double _lbLastA = -1;             // Letterbox 节流日志：客户区/aspect 变化才记
         private bool fullscreen;
@@ -177,8 +179,6 @@ namespace ChildSessionDesktop
         private const int WM_SIZING = 0x0214;
         private const int WM_EXITSIZEMOVE = 0x0232;
         private const int WM_HOTKEY = 0x0312;
-        private const int WM_SYSCOMMAND = 0x0112;
-        private const int SC_MAXIMIZE = 0xF030;
         private const int SW_SHOWNORMAL = 1;
         private const int WMSZ_LEFT = 1, WMSZ_RIGHT = 2, WMSZ_TOP = 3, WMSZ_TOPLEFT = 4,
             WMSZ_TOPRIGHT = 5, WMSZ_BOTTOM = 6, WMSZ_BOTTOMLEFT = 7, WMSZ_BOTTOMRIGHT = 8;
@@ -295,6 +295,12 @@ namespace ChildSessionDesktop
         protected override void OnResize(EventArgs e)
         {
             base.OnResize(e);
+            bool max = (WindowState == FormWindowState.Maximized);
+            if (max != _lastMaximized)   // 进入最大化或还原切换都重置偏移 → 还原后也回顶部居中
+            {
+                _lastMaximized = max;
+                if (toolBar != null) toolBar.ResetToTopCenter();
+            }
             if (!dynamicMode) ApplyLetterbox();
             if (toolBar != null) toolBar.FollowHost(this);
         }
@@ -308,13 +314,8 @@ namespace ChildSessionDesktop
 
         protected override void WndProc(ref Message m)
         {
-            // 双击标题栏 / 点最大化 / 拖到顶部：不真正最大化（最大化会破坏宽高比留黑边），
-            // 改成按会话比例放到当前工作区能容纳的最大尺寸——铺满、不变形、不挡任务栏。
-            if (m.Msg == WM_SYSCOMMAND && (m.WParam.ToInt32() & 0xFFF0) == SC_MAXIMIZE)
-            {
-                FitToWorkArea();
-                return;
-            }
+            // 最大化走 Windows 原生机制：标题栏按钮正确显示"还原"状态；
+            // 最大化=工作区矩形，画面由 Letterbox 等比居中（ActiveX 不放大，比例不符时四周黑边，与全屏一致）。
 
             if (m.Msg == WM_HOTKEY && m.WParam.ToInt32() == 1)
             {
@@ -376,35 +377,6 @@ namespace ChildSessionDesktop
             base.WndProc(ref m);
         }
 
-        // 等比铺满当前工作区：保持会话宽高比，居中，不变形、不挡任务栏。
-        // 用 Windows 官方 SetWindowPlacement 把窗口设为"正常"并同步还原尺寸，
-        // 这样双击/最大化后窗口是真正的 Normal 状态，移动不会还原到旧尺寸。
-        private void FitToWorkArea()
-        {
-            var area = Screen.FromControl(this).WorkingArea;
-            if (area.Width <= 0 || area.Height <= 0) area = Screen.FromControl(this).Bounds;
-            int bw = Width - ClientSize.Width;
-            int bh = Height - ClientSize.Height;
-            int maxCw = area.Width - bw;
-            int maxCh = area.Height - bh;
-            if (maxCw <= 0 || maxCh <= 0) return;
-            int cw, ch;
-            if ((double)maxCw / maxCh > aspect) { ch = maxCh; cw = (int)(ch * aspect + 0.5); }
-            else                                { cw = maxCw; ch = (int)(cw / aspect + 0.5); }
-            int W = cw + bw;
-            int H = ch + bh;
-            int x = area.Left + (area.Width - W) / 2;
-            int y = area.Top + (area.Height - H) / 2;
-
-            var wp = new WINDOWPLACEMENT();
-            wp.length = Marshal.SizeOf(typeof(WINDOWPLACEMENT));
-            GetWindowPlacement(Handle, ref wp);
-            wp.flags = 0;
-            wp.showCmd = SW_SHOWNORMAL;
-            wp.rcNormalPosition = new RECT { Left = x, Top = y, Right = x + W, Bottom = y + H };
-            SetWindowPlacement(Handle, ref wp);
-        }
-
         // 把 Windows 的"还原尺寸"同步为当前窗口矩形（仅当窗口处于正常状态）。
         private void SyncRestoreRect()
         {
@@ -429,10 +401,11 @@ namespace ChildSessionDesktop
             int ch = ClientSize.Height;
             if (cw <= 0 || ch <= 0) return;
             int dw, dh;
-            if (fullscreen && currentSessW > 0 && currentSessH > 0)
+            if (currentSessW > 0 && currentSessH > 0)
             {
-                // 全屏：ActiveX 永不放大（只 1:1，超过屏幕才等比缩小）→ 消除 mstsc 放大灰底。
-                // 画面以原始分辨率等比放入屏幕并居中，四周露纯黑窗口底。
+                // ActiveX 永不放大（只 1:1，放不下才等比缩小）→ 消除 mstsc 放大灰底。
+                // 客户区比画面大时（拉大窗口/低分辨率），画面以原始分辨率等比居中，四周露纯黑窗口底；
+                // 客户区比画面小时，等比缩小铺满（ActiveX 缩小，无灰）。窗口模式与全屏共用这套逻辑。
                 double s = Math.Min((double)cw / currentSessW, (double)ch / currentSessH);
                 if (s > 1.0) s = 1.0;
                 dw = (int)(currentSessW * s + 0.5);
@@ -440,13 +413,7 @@ namespace ChildSessionDesktop
             }
             else
             {
-                // 窗口模式：窗口比例已被 WM_SIZING 锁成画面比例 → 控件铺满客户区，无黑无灰
                 dw = cw; dh = ch;
-                if (aspect > 0)
-                {
-                    if ((double)cw / ch > aspect) dw = (int)(ch * aspect + 0.5);   // 太宽 → 定高算宽，左右黑边
-                    else                           dh = (int)(cw / aspect + 0.5);  // 太高 → 定宽算高，上下黑边
-                }
             }
             rdp.Location = new Point((cw - dw) / 2, (ch - dh) / 2);
             rdp.Size = new Size(dw, dh);
@@ -484,6 +451,7 @@ namespace ChildSessionDesktop
         private bool ToggleFullscreen()
         {
             fullscreen = !fullscreen;
+            if (toolBar != null) toolBar.Fullscreen = fullscreen;   // 提前标记，让 Bounds 变更触发的 FollowHost 用全屏/窗口定位
             if (fullscreen)
             {
                 prevBounds = Bounds;
@@ -495,6 +463,7 @@ namespace ChildSessionDesktop
             else
             {
                 FormBorderStyle = prevBorder;
+                if (toolBar != null) toolBar.ResetToTopCenter();   // 退出全屏统一重置到顶部居中（避免旧偏移跑出窗口）
                 // 全屏期间改过分辨率 → 退出后把窗口重新匹配到当前会话分辨率（1:1，ActiveX 不放大 → 无灰底）。
                 // 未改过 → 恢复进入前的窗口原状。
                 if (currentSessW != fsEnterW || currentSessH != fsEnterH)
@@ -572,6 +541,7 @@ namespace ChildSessionDesktop
             int w = pickW, h = pickH;
             if (w == 0) { w = sw; h = sh; }
             if (w <= 0 || h <= 0) return;
+            w &= ~1;   // RDP 要求偶数像素宽（与连接时一致），避免奇数宽导致 UpdateSessionDisplaySettings 失败
 
             var result = MessageBox.Show(this,
                 "立即把虚拟桌面改成 " + w + " × " + h + " 吗？\n\n" +
@@ -595,8 +565,10 @@ namespace ChildSessionDesktop
                 uint ph = ToMillimeters(h, dpi);
                 client.UpdateSessionDisplaySettings((uint)w, (uint)h, pw, ph, 0, 100, 100);
                 Program.Log("Resolution menu: session set to " + w + "x" + h);
+                _resChangePending = true;   // 改分辨率期间屏蔽 UpdateConnectionStatus 的旧值 readback 干扰
                 currentSessW = w; currentSessH = h;
                 aspect = (double)w / (double)h;
+                if (toolBar != null) toolBar.ResetToTopCenter();   // 分辨率变化→工具栏回顶部居中，避免旧偏移跑出变小后的窗口
                 // 窗口匹配新比例（非全屏：窗口比例=画面比例 → 控件铺满无黑边；全屏：只等比重排控件）
                 MatchWindowToSession(w, h);
                 // ActiveX 显示面异步重建：等 900ms 后读回真实分辨率，再校正一次（对齐 workbuddy）
@@ -616,14 +588,15 @@ namespace ChildSessionDesktop
                         }
                     }
                     catch { }
-                    MatchWindowToSession(currentSessW, currentSessH);
-                    ApplyLetterbox();
+                    _resChangePending = false;   // 校正完成，放行 UpdateConnectionStatus 的 readback
+                    MatchWindowToSession(currentSessW, currentSessH);   // 内部已 ApplyLetterbox
                     if (toolBar != null) toolBar.FollowHost(this);
                 };
                 late.Start();
             }
             catch (Exception ex)
             {
+                _resChangePending = false;
                 Program.Log("Resolution menu apply failed: " + ex);
                 MessageBox.Show(this, "改分辨率失败：" + ex.GetBaseException().Message, "改分辨率",
                     MessageBoxButtons.OK, MessageBoxIcon.Warning);
@@ -659,6 +632,7 @@ namespace ChildSessionDesktop
             if (T < area.Top) T = area.Top;
             SetWindowPos(Handle, IntPtr.Zero, L, T, ww, wh,
                 SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
+            SyncRestoreRect();   // 同步 Windows 还原尺寸：改分辨率后首次移动窗口，拖动轮廓不再用旧尺寸
             Program.Log("窗口匹配会话 " + sessW + "x" + sessH + " → 窗口 " + ww + "x" + wh
                 + " 实际客户区 " + ClientSize.Width + "x" + ClientSize.Height
                 + "（缩放 " + s.ToString("0.000") + " aspect=" + aspect.ToString("0.0000") + "）");
@@ -879,18 +853,20 @@ namespace ChildSessionDesktop
                         {
                             var c = (IMsRdpClient9)rdp.GetOcxObject();
                             int dw = c.DesktopWidth, dh = c.DesktopHeight;
-                            if (dw > 0 && dh > 0)
+                            // 只在分辨率真正变化时才更新 + 重排（避免每 750ms 无条件 ApplyLetterbox 的冗余重排）；
+                            // 改分辨率（ApplyResolutionPick）期间屏蔽，防止读到过渡旧值把布局打回上一下分辨率。
+                            if (dw > 0 && dh > 0 && !_resChangePending && (dw != currentSessW || dh != currentSessH))
                             {
                                 currentSessW = dw; currentSessH = dh;
                                 aspect = (double)dw / (double)dh;
                                 Program.Log("Session resolution readback " + dw + "x" + dh + "; aspect=" + aspect.ToString("0.0000"));
+                                ApplyLetterbox();
                             }
                         }
                         catch (Exception ex)
                         {
                             Program.Log("Could not read back session resolution: " + ex.GetBaseException().Message);
                         }
-                        ApplyLetterbox();
                     }
                 }
                 else if (state == 2)
@@ -1143,7 +1119,8 @@ namespace ChildSessionDesktop
     {
         internal Func<bool> ToggleFullscreen;
         internal Func<Rectangle, bool> ShowResMenu;   // 分辨率按钮回调（锚点=按钮屏幕矩形，由主窗体弹下拉）
-        private readonly string[] labels = { "全屏", "显示", "分辨率", "设置", "更多" };
+        private readonly string[] labels = { "全屏", "显示", "分辨率", "设置", "更多", "拖动" };
+        private const int DragBtnIndex = 5;   // 最右侧的专用"拖动"按钮：只有点住它才能移动工具栏
         private bool fullscreenState;
         private int hoverIndex = -1;
         private int pressedIndex = -1;
@@ -1152,6 +1129,8 @@ namespace ChildSessionDesktop
         private bool dragging;
         private Point dragStart;
         private bool dragMoved;
+        private Form _host;
+        private Point _hostOffset = new Point(int.MinValue, int.MinValue);   // 相对主窗体客户区的偏移（拖动后记住，主窗体移动/缩放时跟随不复位）
         private readonly Rectangle[] buttonRects;
         private readonly Timer animTimer;
         private readonly TooltipForm tooltip;
@@ -1166,7 +1145,7 @@ namespace ChildSessionDesktop
             StartPosition = FormStartPosition.Manual;
             ShowInTaskbar = false;
             TopMost = true;
-            int n = 4;
+            int n = labels.Length;   // 5 个按钮：全屏/显示/分辨率/设置/更多
             buttonRects = new Rectangle[n];
             int totalW = Pad;
             for (int i = 0; i < n; i++)
@@ -1209,18 +1188,39 @@ namespace ChildSessionDesktop
             else Invalidate();
         }
 
+        internal bool Fullscreen;   // 全屏时工具栏固定顶部居中，忽略拖动偏移
+
+        internal void ResetToTopCenter() { _hostOffset = new Point(int.MinValue, int.MinValue); }   // 退出全屏统一重置到顶部居中
+
         internal void UpdateState(bool fs)
         {
             fullscreenState = fs;
+            Fullscreen = fs;
             Invalidate();
         }
 
         // 跟随主窗体：标题栏下方、顶部居中；主窗体移动/缩放时保持相对位置
         internal void FollowHost(Form host)
         {
+            _host = host;
             Rectangle clientScreen = host.RectangleToScreen(host.ClientRectangle);
-            int x = clientScreen.Left + Math.Max(0, (clientScreen.Width - Width) / 2);
-            int y = clientScreen.Top + 34;
+            int x, y;
+            if (Fullscreen || (_host != null && _host.WindowState == FormWindowState.Maximized))
+            {
+                // 全屏/最大化：固定客户区顶部居中 + 34，忽略拖动偏移（避免切过去后位置偏移）
+                x = clientScreen.Left + (clientScreen.Width - Width) / 2;
+                y = clientScreen.Top + 34;
+            }
+            else
+            {
+                if (_hostOffset.X == int.MinValue)   // 初始位置：主窗体顶部居中 + 34
+                    _hostOffset = new Point(Math.Max(0, (clientScreen.Width - Width) / 2), 34);
+                x = clientScreen.Left + _hostOffset.X;
+                y = clientScreen.Top + _hostOffset.Y;
+                // 窗口缩到很小、偏移超出客户区时，夹回客户区内（保证工具栏可见）
+                x = Math.Max(clientScreen.Left, Math.Min(x, clientScreen.Right - Width));
+                y = Math.Max(clientScreen.Top, Math.Min(y, clientScreen.Bottom - Height));
+            }
             if (Location != new Point(x, y)) Location = new Point(x, y);
             // 工具栏移动/缩放时，把正在显示的气泡重新锚到对应图标上
             if (hoverIndex >= 0 && tooltip != null && tooltip.Visible)
@@ -1323,6 +1323,16 @@ namespace ChildSessionDesktop
                             g.FillEllipse(b, cx + 4, cy - 2, 4, 4);
                         }
                         break;
+                    case 5: // 拖动：暗灰方块 + 暗灰九宫格点（与其他白色图标区分）
+                        using (var sq = new SolidBrush(Color.FromArgb(80, 80, 88)))
+                        using (var dot = new SolidBrush(Color.FromArgb(150, 150, 158)))
+                        {
+                            g.FillPath(sq, RoundedRectPath(new Rectangle(cx - 6, cy - 6, 12, 12), 3));
+                            for (int row = -1; row <= 1; row++)
+                                for (int col = -1; col <= 1; col++)
+                                    g.FillEllipse(dot, cx + col * 4 - 1.5f, cy + row * 4 - 1.5f, 3, 3);
+                        }
+                        break;
                 }
             }
         }
@@ -1345,9 +1355,14 @@ namespace ChildSessionDesktop
             {
                 pressedIndex = HitTest(e.Location);
                 if (pressedIndex >= 0) Invalidate();
-                dragging = true;
-                dragMoved = false;
-                dragStart = e.Location;
+                dragMoved = false;   // 每次按下都重置，避免上次拖动残留导致后续点击被跳过
+                if (pressedIndex == DragBtnIndex)
+                {
+                    dragging = true;
+                    dragStart = e.Location;
+                    if (tooltip != null) tooltip.HideAway();   // 拖动时不显示文字气泡
+                }
+                else dragging = false;
             }
             base.OnMouseDown(e);
         }
@@ -1374,7 +1389,18 @@ namespace ChildSessionDesktop
             {
                 dragMoved = true;
                 if (pressedIndex >= 0) { pressedIndex = -1; Invalidate(); }
-                Location = new Point(Location.X + e.X - dragStart.X, Location.Y + e.Y - dragStart.Y);
+                int nx = Location.X + e.X - dragStart.X;
+                int ny = Location.Y + e.Y - dragStart.Y;
+                if (_host != null)
+                {
+                    // 拖动限制在主窗体客户区内，不能拖出窗口
+                    Rectangle cs = _host.RectangleToScreen(_host.ClientRectangle);
+                    nx = Math.Max(cs.Left, Math.Min(nx, cs.Right - Width));
+                    ny = Math.Max(cs.Top, Math.Min(ny, cs.Bottom - Height));
+                }
+                Location = new Point(nx, ny);
+                // 拖动时不显示文字气泡（保持在原位置会滞留，直接隐藏）
+                if (tooltip != null) tooltip.HideAway();
             }
             base.OnMouseMove(e);
         }
@@ -1394,6 +1420,11 @@ namespace ChildSessionDesktop
             if (e.Button == MouseButtons.Left)
             {
                 dragging = false;
+                if (dragMoved && _host != null)   // 拖动结束：记住相对主窗体的偏移，主窗体移动/缩放时跟随不复位
+                {
+                    Rectangle cs = _host.RectangleToScreen(_host.ClientRectangle);
+                    _hostOffset = new Point(Location.X - cs.Left, Location.Y - cs.Top);
+                }
                 if (!dragMoved)
                 {
                     int hit = HitTest(e.Location);
@@ -1410,12 +1441,13 @@ namespace ChildSessionDesktop
                         Invalidate();
                         animTimer.Start();
                     }
-                    else if (hit > 0)
+                    else if (hit > 0 && hit != DragBtnIndex)
                     {
                         selectedIndex = hit;   // 预留工具：点击锁定选中（指示器停在该位置）
                         Invalidate();
                         animTimer.Start();   // 指示器滑向新选中的工具
                     }
+                    // 拖动按钮（DragBtnIndex）点击不触发命令，只作拖动把手
                     // hit>0 的预留按钮暂无动作，仅表现选中态
                 }
                 if (pressedIndex >= 0) { pressedIndex = -1; Invalidate(); }
