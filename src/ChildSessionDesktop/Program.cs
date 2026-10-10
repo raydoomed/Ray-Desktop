@@ -166,6 +166,10 @@ namespace ChildSessionDesktop
 
         private readonly bool dynamicMode;   // 固定分辨率(默认) / --dynamic 动态分辨率（仅启动参数决定）
         private double aspect;
+        private int currentSessW, currentSessH;   // 当前生效的会话分辨率（用于分辨率下拉打勾）
+        private int fsEnterW, fsEnterH;           // 进入全屏时的会话分辨率（退出时判断是否改过）
+        private int _lbLastW = -1, _lbLastH = -1;
+        private double _lbLastA = -1;             // Letterbox 节流日志：客户区/aspect 变化才记
         private bool fullscreen;
         private Rectangle prevBounds;
         private FormBorderStyle prevBorder;
@@ -179,6 +183,9 @@ namespace ChildSessionDesktop
         private const int WMSZ_LEFT = 1, WMSZ_RIGHT = 2, WMSZ_TOP = 3, WMSZ_TOPLEFT = 4,
             WMSZ_TOPRIGHT = 5, WMSZ_BOTTOM = 6, WMSZ_BOTTOMLEFT = 7, WMSZ_BOTTOMRIGHT = 8;
         private const uint VK_F11 = 0x7A;
+        private const uint SWP_NOZORDER = 0x0004;
+        private const uint SWP_NOACTIVATE = 0x0010;
+        private const uint SWP_FRAMECHANGED = 0x0020;
 
         [StructLayout(LayoutKind.Sequential)]
         private struct RECT { public int Left, Top, Right, Bottom; }
@@ -205,6 +212,9 @@ namespace ChildSessionDesktop
         [DllImport("user32.dll")]
         private static extern bool SetWindowPlacement(IntPtr hWnd, ref WINDOWPLACEMENT lpwndpl);
 
+        [DllImport("user32.dll", SetLastError = true)]
+        private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int x, int y, int cx, int cy, uint flags);
+
         [DllImport("user32.dll")]
         private static extern bool RegisterHotKey(IntPtr hWnd, int id, uint fsModifiers, uint vk);
 
@@ -224,6 +234,7 @@ namespace ChildSessionDesktop
             int screenH = Screen.PrimaryScreen.Bounds.Height;
             if (screenW <= 0 || screenH <= 0) { screenW = 1280; screenH = 720; }
             aspect = (double)screenW / (double)screenH;
+            currentSessW = screenW; currentSessH = screenH;
             int initialW = (int)(screenW * 0.9);
             int initialH = (int)(initialW / aspect + 0.5);
             ClientSize = new Size(initialW, initialH);
@@ -231,7 +242,9 @@ namespace ChildSessionDesktop
             int minW = 640;
             MinimumSize = new Size(minW, (int)(minW / aspect + 0.5));
 
-            rdp = new ChildSessionControl { Dock = dynamicMode ? DockStyle.Fill : DockStyle.None, BackColor = Color.Black };
+            // RDP 控件用 Dock=None + ApplyLetterbox 等比居中：控件宽高比恒等于画面宽高比，
+            // 避免 ActiveX(SmartSizing) 在比例不匹配时用灰色填充剩余区域（灰底）。
+            rdp = new ChildSessionControl { Dock = DockStyle.None, BackColor = Color.Black };
             if (dynamicMode) rdp.Resize += delegate { QueueDisplayResize(true); };
             else Program.Log("Letterbox (fixed-resolution) mode enabled; session resolution is pinned to the host screen");
             clipboardRelay = new ClipboardFileRelay(false);
@@ -415,14 +428,35 @@ namespace ChildSessionDesktop
             int cw = ClientSize.Width;
             int ch = ClientSize.Height;
             if (cw <= 0 || ch <= 0) return;
-            int dw = cw, dh = ch;
-            if (aspect > 0)
+            int dw, dh;
+            if (fullscreen && currentSessW > 0 && currentSessH > 0)
             {
-                if ((double)cw / ch > aspect) dw = (int)(ch * aspect + 0.5);   // 太宽 → 定高算宽，左右黑边
-                else                           dh = (int)(cw / aspect + 0.5);  // 太高 → 定宽算高，上下黑边
+                // 全屏：ActiveX 永不放大（只 1:1，超过屏幕才等比缩小）→ 消除 mstsc 放大灰底。
+                // 画面以原始分辨率等比放入屏幕并居中，四周露纯黑窗口底。
+                double s = Math.Min((double)cw / currentSessW, (double)ch / currentSessH);
+                if (s > 1.0) s = 1.0;
+                dw = (int)(currentSessW * s + 0.5);
+                dh = (int)(currentSessH * s + 0.5);
+            }
+            else
+            {
+                // 窗口模式：窗口比例已被 WM_SIZING 锁成画面比例 → 控件铺满客户区，无黑无灰
+                dw = cw; dh = ch;
+                if (aspect > 0)
+                {
+                    if ((double)cw / ch > aspect) dw = (int)(ch * aspect + 0.5);   // 太宽 → 定高算宽，左右黑边
+                    else                           dh = (int)(cw / aspect + 0.5);  // 太高 → 定宽算高，上下黑边
+                }
             }
             rdp.Location = new Point((cw - dw) / 2, (ch - dh) / 2);
             rdp.Size = new Size(dw, dh);
+            if (cw != _lbLastW || ch != _lbLastH || Math.Abs(aspect - _lbLastA) > 0.0001)
+            {
+                _lbLastW = cw; _lbLastH = ch; _lbLastA = aspect;
+                Program.Log("Letterbox: aspect=" + aspect.ToString("0.0000")
+                    + " client=" + cw + "x" + ch
+                    + " rdp=" + dw + "x" + dh + " at (" + rdp.Location.X + "," + rdp.Location.Y + ")");
+            }
         }
 
         private void OpenLogFolder()
@@ -454,16 +488,27 @@ namespace ChildSessionDesktop
             {
                 prevBounds = Bounds;
                 prevBorder = FormBorderStyle;
+                fsEnterW = currentSessW; fsEnterH = currentSessH;   // 记住进入全屏时的会话分辨率
                 FormBorderStyle = FormBorderStyle.None;
-                Bounds = Screen.FromControl(this).Bounds;   // 会话分辨率 = 屏幕原生 → 1:1
+                Bounds = Screen.FromControl(this).Bounds;   // 全屏：窗口=屏幕，控件由 Letterbox 等比居中（画面比例），四周纯黑边
             }
             else
             {
                 FormBorderStyle = prevBorder;
+                // 全屏期间改过分辨率 → 退出后把窗口重新匹配到当前会话分辨率（1:1，ActiveX 不放大 → 无灰底）。
+                // 未改过 → 恢复进入前的窗口原状。
+                if (currentSessW != fsEnterW || currentSessH != fsEnterH)
+                {
+                    MatchWindowToSession(currentSessW, currentSessH);
+                    if (toolBar != null) toolBar.FollowHost(this);
+                    return fullscreen;
+                }
                 Bounds = prevBounds;
             }
             ApplyLetterbox();
             if (toolBar != null) toolBar.UpdateState(fullscreen);
+            Program.Log("全屏 " + (fullscreen ? "进" : "出") + " Bounds=" + Bounds + " client=" + ClientSize.Width + "x" + ClientSize.Height
+                + " aspect=" + aspect.ToString("0.0000") + " sess=" + currentSessW + "x" + currentSessH);
             return fullscreen;
         }
 
@@ -479,8 +524,146 @@ namespace ChildSessionDesktop
             toolBar = new ToolbarForm();
             toolBar.Ready = true;
             toolBar.ToggleFullscreen = ToggleFullscreen;
+            toolBar.ShowResMenu = ShowResMenuAt;
             toolBar.FollowHost(this);
             toolBar.Show();
+        }
+
+        // 分辨率按钮下拉：候选 = 当前屏幕（推荐）+ 一组常见宽屏分辨率。
+        // 这是独立的"会话分辨率"设置，对固定/动态两种模式都生效。
+        private bool ShowResMenuAt(Rectangle anchor)
+        {
+            var menu = new ContextMenuStrip { RenderMode = ToolStripRenderMode.System };
+            menu.ShowImageMargin = false;
+            menu.ShowCheckMargin = true;   // 显示勾选列，标记当前生效的分辨率
+            int sw = Screen.PrimaryScreen.Bounds.Width;
+            int sh = Screen.PrimaryScreen.Bounds.Height;
+            var itemScreen = new ToolStripMenuItem(sw + " × " + sh + "（你的屏幕，推荐）");
+            itemScreen.Click += delegate { ApplyResolutionPick(0, 0); };
+            itemScreen.Checked = (currentSessW == sw && currentSessH == sh);
+            menu.Items.Add(itemScreen);
+            // 常见宽屏分辨率，按像素从大到小排序
+            int[,] presets = {
+                {3840, 2160}, {2560, 1440}, {2560, 1080}, {1920, 1080}, {1366, 768}, {1280, 720}
+            };
+            for (int i = 0; i < presets.GetLength(0); i++)
+            {
+                int w = presets[i, 0], h = presets[i, 1];
+                if (w == sw && h == sh) continue;   // 与"你的屏幕"重复则跳过
+                var item = new ToolStripMenuItem(w + " × " + h);
+                item.Click += delegate { ApplyResolutionPick(w, h); };
+                item.Checked = (currentSessW == w && currentSessH == h);
+                menu.Items.Add(item);
+            }
+            Point pos = new Point(anchor.Left, anchor.Bottom);
+            var wa = Screen.FromControl(this).WorkingArea;
+            pos.X = Math.Max(wa.Left, Math.Min(pos.X, wa.Right - 140));
+            pos.Y = Math.Max(wa.Top, Math.Min(pos.Y, wa.Bottom - 60));
+            menu.Show(pos);
+            return true;
+        }
+
+        // 应用选定的会话分辨率：确认后「不重连」动态改（UpdateSessionDisplaySettings），
+        // 更新宽高比并让窗口匹配新分辨率（优先 1:1，放不下等比缩小铺满）。
+        private void ApplyResolutionPick(int pickW, int pickH)
+        {
+            int sw = Screen.PrimaryScreen.Bounds.Width;
+            int sh = Screen.PrimaryScreen.Bounds.Height;
+            int w = pickW, h = pickH;
+            if (w == 0) { w = sw; h = sh; }
+            if (w <= 0 || h <= 0) return;
+
+            var result = MessageBox.Show(this,
+                "立即把虚拟桌面改成 " + w + " × " + h + " 吗？\n\n" +
+                "• 虚拟桌面里已打开的程序会保留，不会关闭\n" +
+                "• 但正在运行的全屏游戏可能会退出",
+                "改分辨率", MessageBoxButtons.OKCancel, MessageBoxIcon.Question);
+            if (result != DialogResult.OK) return;
+
+            try
+            {
+                var client = (IMsRdpClient9)rdp.GetOcxObject();
+                if (client.Connected != 1)
+                {
+                    MessageBox.Show(this, "尚未连接，无法改分辨率。", "改分辨率",
+                        MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    return;
+                }
+                float dpi = 96f;
+                try { using (var gr = rdp.CreateGraphics()) dpi = gr.DpiX; } catch { }
+                uint pw = ToMillimeters(w, dpi);
+                uint ph = ToMillimeters(h, dpi);
+                client.UpdateSessionDisplaySettings((uint)w, (uint)h, pw, ph, 0, 100, 100);
+                Program.Log("Resolution menu: session set to " + w + "x" + h);
+                currentSessW = w; currentSessH = h;
+                aspect = (double)w / (double)h;
+                // 窗口匹配新比例（非全屏：窗口比例=画面比例 → 控件铺满无黑边；全屏：只等比重排控件）
+                MatchWindowToSession(w, h);
+                // ActiveX 显示面异步重建：等 900ms 后读回真实分辨率，再校正一次（对齐 workbuddy）
+                var late = new Timer { Interval = 900 };
+                late.Tick += delegate
+                {
+                    late.Stop(); late.Dispose();
+                    try
+                    {
+                        var c2 = (IMsRdpClient9)rdp.GetOcxObject();
+                        int dw = c2.DesktopWidth, dh = c2.DesktopHeight;
+                        if (dw > 0 && dh > 0)
+                        {
+                            currentSessW = dw; currentSessH = dh;
+                            aspect = (double)dw / (double)dh;
+                            Program.Log("Resolution menu readback " + dw + "x" + dh);
+                        }
+                    }
+                    catch { }
+                    MatchWindowToSession(currentSessW, currentSessH);
+                    ApplyLetterbox();
+                    if (toolBar != null) toolBar.FollowHost(this);
+                };
+                late.Start();
+            }
+            catch (Exception ex)
+            {
+                Program.Log("Resolution menu apply failed: " + ex);
+                MessageBox.Show(this, "改分辨率失败：" + ex.GetBaseException().Message, "改分辨率",
+                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            }
+        }
+
+        // 把窗口匹配到指定会话分辨率：客户区宽高比 == 会话宽高比，优先 1:1（最锐利），
+        // 放不下才等比缩小到能完整放进工作区；用 SetWindowPos 直接调窗口尺寸（对齐 workbuddy）。
+        // 非全屏时窗口比例 == 画面比例 → 控件铺满客户区，零黑边零灰底。
+        private void MatchWindowToSession(int sessW, int sessH)
+        {
+            if (Handle == IntPtr.Zero || IsDisposed) return;
+            if (sessW <= 0 || sessH <= 0) return;
+            if (fullscreen) { ApplyLetterbox(); return; }   // 全屏时窗口保持铺满屏幕，只重排控件
+            // 最小尺寸跟随当前画面比例，防止后续拖动破坏比例
+            MinimumSize = new Size(320, (int)(320 / aspect + 0.5));
+            var area = Screen.FromControl(this).WorkingArea;
+            if (area.Width <= 0 || area.Height <= 0) area = Screen.FromControl(this).Bounds;
+            int bw = Width - ClientSize.Width;
+            int bh = Height - ClientSize.Height;
+            int availW = area.Width - bw - 8;
+            int availH = area.Height - bh - 8;
+            if (availW < 320) availW = 320;
+            if (availH < 240) availH = 240;
+            double s = Math.Min((double)availW / sessW, (double)availH / sessH);
+            if (s > 1.0) s = 1.0;   // 能 1:1 就 1:1
+            int cw = (int)(sessW * s + 0.5);
+            int ch = (int)(sessH * s + 0.5);
+            int ww = cw + bw, wh = ch + bh;
+            int L = area.Left + (area.Width - ww) / 2;
+            int T = area.Top + (area.Height - wh) / 2;
+            if (L < area.Left) L = area.Left;
+            if (T < area.Top) T = area.Top;
+            SetWindowPos(Handle, IntPtr.Zero, L, T, ww, wh,
+                SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
+            Program.Log("窗口匹配会话 " + sessW + "x" + sessH + " → 窗口 " + ww + "x" + wh
+                + " 实际客户区 " + ClientSize.Width + "x" + ClientSize.Height
+                + "（缩放 " + s.ToString("0.000") + " aspect=" + aspect.ToString("0.0000") + "）");
+            ApplyLetterbox();
+            if (toolBar != null) toolBar.FollowHost(this);
         }
 
         private void ConnectChildSession()
@@ -698,6 +881,7 @@ namespace ChildSessionDesktop
                             int dw = c.DesktopWidth, dh = c.DesktopHeight;
                             if (dw > 0 && dh > 0)
                             {
+                                currentSessW = dw; currentSessH = dh;
                                 aspect = (double)dw / (double)dh;
                                 Program.Log("Session resolution readback " + dw + "x" + dh + "; aspect=" + aspect.ToString("0.0000"));
                             }
@@ -958,7 +1142,8 @@ namespace ChildSessionDesktop
     internal sealed class ToolbarForm : Form
     {
         internal Func<bool> ToggleFullscreen;
-        private readonly string[] labels = { "全屏", "显示", "设置", "更多" };
+        internal Func<Rectangle, bool> ShowResMenu;   // 分辨率按钮回调（锚点=按钮屏幕矩形，由主窗体弹下拉）
+        private readonly string[] labels = { "全屏", "显示", "分辨率", "设置", "更多" };
         private bool fullscreenState;
         private int hoverIndex = -1;
         private int pressedIndex = -1;
@@ -1113,7 +1298,12 @@ namespace ChildSessionDesktop
                         g.DrawLine(pen, cx, cy + 4, cx, cy + 6);
                         g.DrawLine(pen, cx - 4, cy + 6, cx + 4, cy + 6);
                         break;
-                    case 2: // 设置：齿轮（外圈 + 内孔 + 8 齿）
+                    case 2: // 分辨率：像素网格（田字格，2×2 分辨率格）
+                        g.DrawRectangle(pen, cx - 7, cy - 7, 14, 14);
+                        g.DrawLine(pen, cx, cy - 7, cx, cy + 7);
+                        g.DrawLine(pen, cx - 7, cy, cx + 7, cy);
+                        break;
+                    case 3: // 设置：齿轮（外圈 + 内孔 + 8 齿）
                         float rOut = 6f, rTeeth = 8.5f;
                         g.DrawEllipse(pen, cx - rOut, cy - rOut, rOut * 2, rOut * 2);
                         g.DrawEllipse(pen, cx - 2.5f, cy - 2.5f, 5, 5);
@@ -1125,7 +1315,7 @@ namespace ChildSessionDesktop
                                 cx + rTeeth * (float)Math.Cos(a), cy + rTeeth * (float)Math.Sin(a));
                         }
                         break;
-                    case 3: // 更多：横三点
+                    case 4: // 更多：横三点
                         using (var b = new SolidBrush(Color.FromArgb(240, 240, 242)))
                         {
                             g.FillEllipse(b, cx - 8, cy - 2, 4, 4);
@@ -1211,6 +1401,14 @@ namespace ChildSessionDesktop
                     {
                         bool fs = ToggleFullscreen();
                         UpdateState(fs);
+                    }
+                    else if (hit == 2 && ShowResMenu != null)
+                    {
+                        // 分辨率按钮：由主窗体弹出下拉，指示器停在分辨率按钮上
+                        ShowResMenu(RectangleToScreen(buttonRects[2]));
+                        selectedIndex = hit;
+                        Invalidate();
+                        animTimer.Start();
                     }
                     else if (hit > 0)
                     {
