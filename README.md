@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/RayDesktop-preview.png" width="120" alt="Ray Desktop">
+  <img src="assets/RayDesktop-preview.png" width="520" alt="Ray Desktop">
 </p>
 
 <h1 align="center">Ray Desktop · 独立 Windows 桌面</h1>
@@ -91,8 +91,9 @@ WinForms 宿主启动
 ```text
 .
 ├─ assets/                                 # 资源文件
-│  ├─ RayDesktop.ico                       # 程序图标源
-│  └─ RayDesktop-preview.png               # 项目 Logo
+│  ├─ RayDesktop.ico                       # 程序图标
+│  ├─ RayDesktop-preview.png               # README 顶部品牌锁版
+│  └─ screenshot.jpg                       # 界面预览图
 ├─ build.ps1                               # Windows 本机构建脚本
 ├─ LICENSE                                 # MIT 许可
 ├─ README.md                               # 本说明文档
