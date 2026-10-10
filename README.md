@@ -97,6 +97,7 @@ WinForms 宿主启动
 ├─ build.ps1                               # Windows 本机构建脚本
 ├─ LICENSE                                 # MIT 许可
 ├─ README.md                               # 本说明文档
+├─ release-notes/                          # 各版本发布说明（仅本地保留，GitHub Release 页为准，不入库）
 ├─ Raydesktop/                             # 构建输出（与 src 同级，已 gitignore，经 Releases 分发）
 │  ├─ Raydesktop.exe                       # 主程序
 │  ├─ EnableChildSessions.exe              # 启用功能的 UAC 辅助程序
