@@ -5,6 +5,10 @@
 <h1 align="center">Ray Desktop · 独立 Windows 桌面</h1>
 
 <p align="center">
+  <a href="README.en.md">English</a> · <a href="README.md">中文</a>
+</p>
+
+<p align="center">
   <b>在当前登录用户的 Windows 里，用一个独立窗口操作另一个桌面会话，不影响主桌面。</b>
 </p>
 
@@ -97,7 +101,6 @@ WinForms 宿主启动
 ├─ build.ps1                               # Windows 本机构建脚本
 ├─ LICENSE                                 # MIT 许可
 ├─ README.md                               # 本说明文档
-├─ release-notes/                          # 各版本发布说明（仅本地保留，GitHub Release 页为准，不入库）
 ├─ Raydesktop/                             # 构建输出（与 src 同级，已 gitignore，经 Releases 分发）
 │  ├─ Raydesktop.exe                       # 主程序
 │  ├─ EnableChildSessions.exe              # 启用功能的 UAC 辅助程序
