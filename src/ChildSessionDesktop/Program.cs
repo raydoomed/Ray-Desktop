@@ -749,8 +749,8 @@ namespace ChildSessionDesktop
             var menu = MakeToolbarMenu();
             menu.ShowImageMargin = false;
             menu.ShowCheckMargin = true;   // 显示勾选列，标记当前生效的分辨率
-            int sw = Screen.PrimaryScreen.Bounds.Width;
-            int sh = Screen.PrimaryScreen.Bounds.Height;
+            int sw = Screen.FromControl(this).Bounds.Width;   // "你的屏幕"= 窗口当前所在屏幕（多显示器跟随）
+            int sh = Screen.FromControl(this).Bounds.Height;
             var itemScreen = new ToolStripMenuItem(sw + " × " + sh + "（你的屏幕，推荐）");
             itemScreen.Click += delegate { ApplyResolutionPick(0, 0); };
             itemScreen.Checked = (currentSessW == sw && currentSessH == sh);
@@ -780,8 +780,8 @@ namespace ChildSessionDesktop
         // 更新宽高比并让窗口匹配新分辨率（优先 1:1，放不下等比缩小铺满）。
         private void ApplyResolutionPick(int pickW, int pickH)
         {
-            int sw = Screen.PrimaryScreen.Bounds.Width;
-            int sh = Screen.PrimaryScreen.Bounds.Height;
+            int sw = Screen.FromControl(this).Bounds.Width;   // "你的屏幕"= 窗口当前所在屏幕（多显示器跟随）
+            int sh = Screen.FromControl(this).Bounds.Height;
             int w = pickW, h = pickH;
             if (w == 0) { w = sw; h = sh; }
             if (w <= 0 || h <= 0) return;
