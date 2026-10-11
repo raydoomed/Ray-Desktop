@@ -181,6 +181,7 @@ namespace ChildSessionDesktop
         private bool _followScreenRes = true;   // 当前分辨率是否"跟随你的屏幕"：true 时跨屏自动改到新屏；手动选了特定分辨率后置 false，跨屏保持手动值不动
         // 会话分辨率只由用户意图设置（选/跨屏/最大化/拖拽结束），不设跨屏锁定。
         private int _maxSessW, _maxSessH;       // 进入最大化时记住当前会话分辨率，还原时恢复它（Windows 还原尺寸可能有偏差，导致分辨率漂移）
+        private Size _fixedMatchClient = Size.Empty;   // 固定模式下最近窗口匹配会话的目标逻辑客户区；切动态时据此判断窗口是否被用户拉伸
         private FormBorderStyle prevBorder;
         private ToolbarForm toolBar;                 // 独立悬浮工具栏（可拖动，含全屏/退出全屏）
         private const int WM_SIZING = 0x0214;
@@ -578,9 +579,16 @@ namespace ChildSessionDesktop
             }
             if (mode)
             {
-                // 切到动态：控件铺满客户区，保持当前会话分辨率（切动态瞬间不改分辨率）。
-                // 分辨率跟随只由用户拖拽结束（WM_EXITSIZEMOVE）/最大化触发，铺满本身不触发。
+                // 切到动态：
+                //  - 窗口未被拉伸（逻辑客户区 == 固定模式匹配尺寸）→ 保持当前会话分辨率。
+                //    否则固定模式"你的屏幕"下窗口会因工作区放不下而等比缩小显示（客户区<屏幕原生），
+                //    若一律跟随客户区会把"你的屏幕"误改成缩放值（偏移）。
+                //  - 窗口被用户拉伸过（逻辑客户区 != 匹配尺寸）→ 会话跟随窗口逻辑客户区。
                 SetDynamicLayout();
+                bool stretched = _fixedMatchClient != Size.Empty &&
+                    (Math.Abs(ClientSize.Width - _fixedMatchClient.Width) > 3 ||
+                     Math.Abs(ClientSize.Height - _fixedMatchClient.Height) > 3);
+                if (stretched) QueueDisplayResize();
             }
             else
             {
@@ -640,7 +648,7 @@ namespace ChildSessionDesktop
         }
 
         // 预置 lastRequestedDisplaySize 为当前窗口尺寸，使随后触发的 ApplyDisplaySize
-        // 因"请求尺寸未变"而跳过——即切动态/动态选分辨率时不覆盖刚设定的会话分辨率。
+        // 因"请求尺寸未变"而跳过——用于动态选分辨率/跨屏后，阻止把刚设定的会话分辨率改掉。
         private void HoldCurrentDisplaySize()
         {
             try
@@ -886,7 +894,7 @@ namespace ChildSessionDesktop
                 // 固定/动态一致：选什么分辨率，会话分辨率就是什么，窗口自动匹配该比例铺满。
                 MatchWindowToSession(w, h);
                 // 动态模式下选分辨率后，预置 lastRequestedDisplaySize 为当前窗口尺寸，
-                // 阻止随后的 rdp.Resize→ApplyDisplaySize 用窗口尺寸覆盖刚选定的分辨率（否则要选两次才生效）。
+                // 使 WM_EXITSIZEMOVE 触发的 ApplyDisplaySize 因尺寸未变而跳过，不覆盖刚选定的分辨率（否则要选两次才生效）。
                 if (dynamicMode) HoldCurrentDisplaySize();
                 // ActiveX 显示面异步重建：等 900ms 后读回真实分辨率，再校正一次（对齐 workbuddy）
                 var late = new Timer { Interval = 900 };
@@ -947,6 +955,7 @@ namespace ChildSessionDesktop
             if (s > 1.0) s = 1.0;   // 能 1:1 就 1:1
             int cw = (int)(sessW * s + 0.5);
             int ch = (int)(sessH * s + 0.5);
+            if (!dynamicMode) _fixedMatchClient = new Size(cw, ch);   // 固定模式记录匹配目标客户区（切动态时判断是否被拉伸）
             int ww = cw + bw, wh = ch + bh;
             int L = area.Left + (area.Width - ww) / 2;
             int T = area.Top + (area.Height - wh) / 2;
