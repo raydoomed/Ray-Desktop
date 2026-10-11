@@ -177,6 +177,8 @@ namespace ChildSessionDesktop
         private Rectangle prevBounds;
         private Rectangle _trackedScreen = Rectangle.Empty;   // 当前窗口所在屏幕（Bounds），跨屏拖动检测用
         private bool _followScreenRes = true;   // 当前分辨率是否"跟随你的屏幕"：true 时跨屏自动改到新屏；手动选了特定分辨率后置 false，跨屏保持手动值不动
+        private bool _crossScreenLock = false;  // 跨屏跟随"你的屏幕"改分辨率后短暂锁定：阻止动态模式用缩小后的窗口尺寸覆盖目标分辨率（否则"你的屏幕"不打勾）
+        private int _maxSessW, _maxSessH;       // 进入最大化时记住当前会话分辨率，还原时恢复它（Windows 还原尺寸可能有偏差，导致分辨率漂移）
         private FormBorderStyle prevBorder;
         private ToolbarForm toolBar;                 // 独立悬浮工具栏（可拖动，含全屏/退出全屏）
         private const int WM_SIZING = 0x0214;
@@ -303,7 +305,20 @@ namespace ChildSessionDesktop
             bool max = (WindowState == FormWindowState.Maximized);
             if (max != _lastMaximized)   // 进入最大化或还原切换都重置偏移 → 还原后也回顶部居中
             {
+                bool wasMax = _lastMaximized;
                 _lastMaximized = max;
+                if (max)
+                {
+                    _maxSessW = currentSessW; _maxSessH = currentSessH;   // 记住最大化前的分辨率
+                }
+                else if (wasMax && _maxSessW > 0)
+                {
+                    // 从最大化还原：Windows 还原尺寸可能有偏差（如 1280×720 还原成 1278×712），
+                    // 动态模式会跟随该偏差 → 分辨率漂移、菜单不打勾。这里恢复最大化前分辨率，
+                    // 并用跨屏锁定挡住随后 ApplyDisplaySize 用还原后的偏差窗口尺寸覆盖目标分辨率。
+                    _crossScreenLock = true;
+                    ApplySessionResolution(_maxSessW, _maxSessH, false);
+                }
                 if (toolBar != null) toolBar.ResetToTopCenter();
             }
             if (dynamicMode) SetDynamicLayout();   // 动态模式：控件铺满客户区 → Resize 触发 QueueDisplayResize（分辨率随窗口）
@@ -330,6 +345,8 @@ namespace ChildSessionDesktop
             if (scr != _trackedScreen)
             {
                 _trackedScreen = scr;   // 先记录再动作，避免 SetWindowPos 回触发本检测导致抖动
+                Program.Log("AutoFollow: screen=" + scr.Width + "x" + scr.Height +
+                            " follow=" + _followScreenRes + " sess=" + currentSessW + "x" + currentSessH);
                 // 仅当当前分辨率在"跟随你的屏幕"状态才跨屏改到新屏；手动选了特定分辨率（_followScreenRes=false）则保持手动值，不覆盖
                 if (_followScreenRes && rdp != null)
                 {
@@ -339,10 +356,23 @@ namespace ChildSessionDesktop
                         if (client.Connected == 1)
                         {
                             int w = scr.Width & ~1;   // RDP 要求偶数像素宽（与手动选择一致），避免奇数宽失败
+                            _crossScreenLock = true;  // 锁定：阻止随后 ApplyDisplaySize 用缩小后的窗口尺寸覆盖目标分辨率
                             ApplySessionResolution(w, scr.Height, false);
+                            // 保持锁定，直到用户主动拉窗口（WndProc 收到 WM_SIZING）才解除恢复跟随。
+                            // 这样跨屏后分辨率稳定=所在屏原生，不再因窗口适配而反复变化。
                         }
                     }
-                    catch { }
+                    catch { _crossScreenLock = false; }
+                }
+                else if (!_followScreenRes && rdp != null)
+                {
+                    // 手动锁定分辨率：跨屏后把窗口重新匹配回手动分辨率比例（放不下则等比缩小）。
+                    // Windows 跨屏 / 匹配会改变窗口尺寸，若被动态模式当作"拉窗口"，会用窗口尺寸覆盖手动值
+                    // （如 1366×768 被改成 1364×760），导致不保持、菜单不打勾。
+                    // 这里还原窗口后预置 lastRequestedDisplaySize=还原后的窗口尺寸，使随后的 ApplyDisplaySize 跳过；
+                    // 用户之后主动拉窗口（尺寸 ≠ lastRequested）仍会正常跟随。
+                    MatchWindowToSession(currentSessW, currentSessH);
+                    HoldCurrentDisplaySize();
                 }
             }
         }
@@ -365,6 +395,10 @@ namespace ChildSessionDesktop
             {
                 SyncRestoreRect();
             }
+
+            // 用户主动拖拽边框缩放：解除跨屏锁定，恢复动态分辨率跟随窗口
+            if (m.Msg == WM_SIZING && _crossScreenLock)
+                _crossScreenLock = false;
 
             // 拖拽边框缩放时锁定宽高比 == 会话宽高比，拖出来就是无黑边的正确比例。
             if (!dynamicMode && m.Msg == WM_SIZING && aspect > 0)
@@ -782,6 +816,8 @@ namespace ChildSessionDesktop
             menu.ShowCheckMargin = true;   // 显示勾选列，标记当前生效的分辨率
             int sw = Screen.FromControl(this).Bounds.Width;   // "你的屏幕"= 窗口当前所在屏幕（多显示器跟随）
             int sh = Screen.FromControl(this).Bounds.Height;
+            Program.Log("ResMenu open: sess=" + currentSessW + "x" + currentSessH +
+                        " screen=" + sw + "x" + sh + " follow=" + _followScreenRes);
             var itemScreen = new ToolStripMenuItem(sw + " × " + sh + "（你的屏幕，推荐）");
             itemScreen.Click += delegate { ApplyResolutionPick(0, 0); };
             itemScreen.Checked = (currentSessW == sw && currentSessH == sh);
@@ -816,6 +852,7 @@ namespace ChildSessionDesktop
             int w = pickW, h = pickH;
             if (w == 0) { w = sw; h = sh; _followScreenRes = true; }   // "你的屏幕"：跨屏继续跟随
             else _followScreenRes = false;                             // 手动选特定分辨率：跨屏保持此值，不再自动改
+            _crossScreenLock = false;   // 用户主动选分辨率 = 新意图，解除跨屏锁定（否则跨屏后最大化/改分辨率不跟随动态）
             if (w <= 0 || h <= 0) return;
             w &= ~1;   // RDP 要求偶数像素宽（与连接时一致），避免奇数宽导致 UpdateSessionDisplaySettings 失败
 
@@ -920,8 +957,13 @@ namespace ChildSessionDesktop
             int T = area.Top + (area.Height - wh) / 2;
             if (L < area.Left) L = area.Left;
             if (T < area.Top) T = area.Top;
-            SetWindowPos(Handle, IntPtr.Zero, L, T, ww, wh,
-                SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
+            // 用 ClientSize 直接设置客户区：SetWindowPos 按外层尺寸（客户区+边框）设置时，
+            // Windows 对边框的舍入会导致客户区偏差（如 1366×768 变成 1364×760）。
+            // ClientSize 赋值保证客户区精确 == 所选分辨率，未拉伸/最大化还原时 1:1 无偏移。
+            ClientSize = new Size(cw, ch);
+            Location = new Point(
+                Math.Max(area.Left, area.Left + (area.Width - cw) / 2),
+                Math.Max(area.Top, area.Top + (area.Height - ch) / 2));
             SyncRestoreRect();   // 同步 Windows 还原尺寸：改分辨率后首次移动窗口，拖动轮廓不再用旧尺寸
             Program.Log("窗口匹配会话 " + sessW + "x" + sessH + " → 窗口 " + ww + "x" + wh
                 + " 实际客户区 " + ClientSize.Width + "x" + ClientSize.Height
@@ -1314,6 +1356,7 @@ namespace ChildSessionDesktop
         {
             if (closing || rdp.IsDisposed || !rdp.IsHandleCreated) return;
             if (!dynamicMode) return;   // 只允许动态模式改分辨率；固定模式靠 UpdateSessionDisplaySettings 主动改，残留定时器不得干预
+            if (_crossScreenLock) return;   // 跨屏跟随"你的屏幕"改分辨率后的短暂锁定期：不让缩小后的窗口尺寸覆盖目标分辨率
             try
             {
                 var client = (IMsRdpClient9)rdp.GetOcxObject();
@@ -1349,6 +1392,10 @@ namespace ChildSessionDesktop
                 lastFailedDisplaySize = Size.Empty;
                 resizeRetryCount = 0;
                 nextResizeAttempt = DateTime.MinValue;
+                // 同步 currentSessW/H：动态模式下窗口尺寸变化会真实改变会话分辨率，
+                // 不更新则分辨率菜单打勾仍用旧值（如最大化后还原，还原回 1280×720 却因 currentSessW 停在最大化值而不打勾）。
+                currentSessW = width; currentSessH = height;
+                aspect = (double)width / (double)height;
                 Program.Log("Remote desktop resized to " + width + "x" + height);
             }
             catch (Exception ex)
