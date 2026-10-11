@@ -440,7 +440,7 @@ namespace ChildSessionDesktop
         // "显示"按钮下拉：选固定分辨率 / 动态分辨率，当前模式打勾（对两种模式分辨率按钮都可用）。
         private bool ShowDisplayModeMenuAt(Rectangle anchor)
         {
-            var menu = new ContextMenuStrip { RenderMode = ToolStripRenderMode.System };
+            var menu = MakeToolbarMenu();
             menu.ShowImageMargin = false;
             menu.ShowCheckMargin = true;   // 显示勾选列，标记当前生效的模式
             var itemFixed = new ToolStripMenuItem("固定分辨率");
@@ -451,6 +451,34 @@ namespace ChildSessionDesktop
             itemDynamic.Checked = dynamicMode;
             menu.Items.Add(itemFixed);
             menu.Items.Add(itemDynamic);
+            Point pos = new Point(anchor.Left, anchor.Bottom);
+            var wa = Screen.FromControl(this).WorkingArea;
+            pos.X = Math.Max(wa.Left, Math.Min(pos.X, wa.Right - 120));
+            pos.Y = Math.Max(wa.Top, Math.Min(pos.Y, wa.Bottom - 60));
+            menu.Show(pos);
+            return true;
+        }
+
+        // "更多"按钮下拉：关于 / 打开日志 / 检查更新（复用预留的 AboutBox、OpenLogFolder）
+        private bool ShowMoreMenuAt(Rectangle anchor)
+        {
+            var menu = MakeToolbarMenu();
+            menu.ShowImageMargin = false;
+            menu.ShowCheckMargin = false;
+            var itemAbout = new ToolStripMenuItem("关于 Ray Desktop");
+            itemAbout.Click += delegate { AboutBox(); };
+            var itemLog = new ToolStripMenuItem("打开日志文件夹");
+            itemLog.Click += delegate { OpenLogFolder(); };
+            var itemUpdate = new ToolStripMenuItem("检查更新…");
+            itemUpdate.Click += delegate
+            {
+                try { Process.Start("https://github.com/raydoomed/Ray-Desktop/releases"); }
+                catch { }
+            };
+            menu.Items.Add(itemAbout);
+            menu.Items.Add(itemLog);
+            menu.Items.Add(new ToolStripSeparator());
+            menu.Items.Add(itemUpdate);
             Point pos = new Point(anchor.Left, anchor.Bottom);
             var wa = Screen.FromControl(this).WorkingArea;
             pos.X = Math.Max(wa.Left, Math.Min(pos.X, wa.Right - 120));
@@ -630,16 +658,95 @@ namespace ChildSessionDesktop
             toolBar.ToggleFullscreen = ToggleFullscreen;
             toolBar.ShowResMenu = ShowResMenuAt;
             toolBar.ShowDisplayModeMenu = ShowDisplayModeMenuAt;
+            toolBar.ShowMoreMenu = ShowMoreMenuAt;
             toolBar.IsDynamicMode = dynamicMode;
             toolBar.FollowHost(this);
             toolBar.Show();
+        }
+
+        // 下拉菜单统一样式：深色底 + 白字 + 白勾 + 深色分隔/边框，匹配工具栏黑条风格
+        private static ContextMenuStrip MakeToolbarMenu()
+        {
+            var menu = new ContextMenuStrip();
+            menu.Renderer = new ToolbarMenuRenderer();
+            menu.ShowImageMargin = false;
+            return menu;
+        }
+
+        private sealed class ToolbarMenuRenderer : ToolStripProfessionalRenderer
+        {
+            internal ToolbarMenuRenderer() : base(new ToolbarMenuColorTable()) { }
+
+            protected override void OnRenderItemText(ToolStripItemTextRenderEventArgs e)
+            {
+                if (e.Item is ToolStripSeparator) { base.OnRenderItemText(e); return; }
+                e.TextColor = e.Item.Selected ? Color.White : Color.FromArgb(216, 216, 222);
+                base.OnRenderItemText(e);
+            }
+
+            protected override void OnRenderMenuItemBackground(ToolStripItemRenderEventArgs e)
+            {
+                if (e.Item.Selected)
+                {
+                    var r = new Rectangle(2, 1, e.Item.Width - 4, e.Item.Height - 2);
+                    using (var b = new SolidBrush(Color.FromArgb(70, 255, 255, 255)))
+                        e.Graphics.FillRectangle(b, r);
+                }
+            }
+
+            protected override void OnRenderItemCheck(ToolStripItemImageRenderEventArgs e)
+            {
+                var r = e.ImageRectangle;
+                using (var b = new SolidBrush(Color.FromArgb(36, 36, 42)))
+                    e.Graphics.FillRectangle(b, r);
+                using (var p = new Pen(Color.White, 1.7f))
+                {
+                    p.StartCap = LineCap.Round; p.EndCap = LineCap.Round;
+                    int x = r.X + 2, cy = r.Y + r.Height / 2 - 1;
+                    e.Graphics.DrawLines(p, new[] {
+                        new Point(x, cy),
+                        new Point(x + 4, cy + 4),
+                        new Point(x + 8, cy - 2)
+                    });
+                }
+            }
+
+            protected override void OnRenderSeparator(ToolStripSeparatorRenderEventArgs e)
+            {
+                using (var p = new Pen(Color.FromArgb(58, 58, 66)))
+                    e.Graphics.DrawLine(p, 10, e.Item.Height / 2, e.Item.Width - 10, e.Item.Height / 2);
+            }
+
+            protected override void OnRenderToolStripBorder(ToolStripRenderEventArgs e)
+            {
+                using (var p = new Pen(Color.FromArgb(60, 60, 70)))
+                    e.Graphics.DrawRectangle(p, new Rectangle(0, 0, e.AffectedBounds.Width - 1, e.AffectedBounds.Height - 1));
+            }
+        }
+
+        private sealed class ToolbarMenuColorTable : ProfessionalColorTable
+        {
+            public override Color ToolStripDropDownBackground { get { return Color.FromArgb(32, 32, 38); } }
+            public override Color ImageMarginGradientBegin { get { return Color.FromArgb(32, 32, 38); } }
+            public override Color ImageMarginGradientMiddle { get { return Color.FromArgb(32, 32, 38); } }
+            public override Color ImageMarginGradientEnd { get { return Color.FromArgb(32, 32, 38); } }
+            public override Color MenuBorder { get { return Color.FromArgb(60, 60, 70); } }
+            public override Color MenuItemBorder { get { return Color.Transparent; } }
+            public override Color MenuItemSelected { get { return Color.FromArgb(48, 48, 56); } }
+            public override Color MenuItemSelectedGradientBegin { get { return Color.FromArgb(48, 48, 56); } }
+            public override Color MenuItemSelectedGradientEnd { get { return Color.FromArgb(48, 48, 56); } }
+            public override Color CheckBackground { get { return Color.FromArgb(36, 36, 42); } }
+            public override Color CheckSelectedBackground { get { return Color.FromArgb(36, 36, 42); } }
+            public override Color CheckPressedBackground { get { return Color.FromArgb(36, 36, 42); } }
+            public override Color SeparatorDark { get { return Color.FromArgb(58, 58, 66); } }
+            public override Color SeparatorLight { get { return Color.FromArgb(58, 58, 66); } }
         }
 
         // 分辨率按钮下拉：候选 = 当前屏幕（推荐）+ 一组常见宽屏分辨率。
         // 这是独立的"会话分辨率"设置，对固定/动态两种模式都生效。
         private bool ShowResMenuAt(Rectangle anchor)
         {
-            var menu = new ContextMenuStrip { RenderMode = ToolStripRenderMode.System };
+            var menu = MakeToolbarMenu();
             menu.ShowImageMargin = false;
             menu.ShowCheckMargin = true;   // 显示勾选列，标记当前生效的分辨率
             int sw = Screen.PrimaryScreen.Bounds.Width;
@@ -1290,8 +1397,9 @@ namespace ChildSessionDesktop
         internal Func<bool> ToggleFullscreen;
         internal Func<Rectangle, bool> ShowResMenu;   // 分辨率按钮回调（锚点=按钮屏幕矩形，由主窗体弹下拉）
         internal Func<Rectangle, bool> ShowDisplayModeMenu;   // "显示"按钮回调：弹下拉选固定/动态分辨率模式
+        internal Func<Rectangle, bool> ShowMoreMenu;          // "更多"按钮回调：弹下拉（关于/打开日志/检查更新）
         internal bool IsDynamicMode;                  // 当前显示模式：true=动态（会话分辨率随窗口）/ false=固定
-        private readonly string[] labels = { "全屏", "显示", "分辨率", "设置", "更多", "拖动" };
+        private readonly string[] labels = { "全屏", "显示", "分辨率", "结束", "更多", "拖动" };
         private const int DragBtnIndex = 5;   // 最右侧的专用"拖动"按钮：只有点住它才能移动工具栏
         private int hoverIndex = -1;
         private int pressedIndex = -1;
@@ -1473,17 +1581,9 @@ namespace ChildSessionDesktop
                         g.DrawLine(pen, cx, cy - 7, cx, cy + 7);
                         g.DrawLine(pen, cx - 7, cy, cx + 7, cy);
                         break;
-                    case 3: // 设置：齿轮（外圈 + 内孔 + 8 齿）
-                        float rOut = 6f, rTeeth = 8.5f;
-                        g.DrawEllipse(pen, cx - rOut, cy - rOut, rOut * 2, rOut * 2);
-                        g.DrawEllipse(pen, cx - 2.5f, cy - 2.5f, 5, 5);
-                        for (int k = 0; k < 8; k++)
-                        {
-                            float a = (float)(k * Math.PI / 4);
-                            g.DrawLine(pen,
-                                cx + rOut * (float)Math.Cos(a), cy + rOut * (float)Math.Sin(a),
-                                cx + rTeeth * (float)Math.Cos(a), cy + rTeeth * (float)Math.Sin(a));
-                        }
+                    case 3: // 结束：叉号（两笔对角线，关闭窗口，与工具栏白线图标同风格）
+                        g.DrawLine(pen, cx - 6, cy - 6, cx + 6, cy + 6);
+                        g.DrawLine(pen, cx - 6, cy + 6, cx + 6, cy - 6);
                         break;
                     case 4: // 更多：横三点
                         using (var b = new SolidBrush(Color.FromArgb(240, 240, 242)))
@@ -1621,6 +1721,19 @@ namespace ChildSessionDesktop
                     {
                         // 显示按钮：弹下拉选固定/动态分辨率模式，指示器停在显示按钮上
                         ShowDisplayModeMenu(RectangleToScreen(buttonRects[1]));
+                        selectedIndex = hit;
+                        Invalidate();
+                        animTimer.Start();
+                    }
+                    else if (hit == 3 && _host != null)
+                    {
+                        // 结束按钮：关闭主窗口（与窗口右上角 X 相同，触发注销子会话等正常关闭流程）
+                        _host.Close();
+                    }
+                    else if (hit == 4 && ShowMoreMenu != null)
+                    {
+                        // 更多按钮：弹下拉（关于/打开日志/检查更新），指示器停在更多按钮上
+                        ShowMoreMenu(RectangleToScreen(buttonRects[4]));
                         selectedIndex = hit;
                         Invalidate();
                         animTimer.Start();
