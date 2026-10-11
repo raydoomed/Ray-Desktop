@@ -1410,10 +1410,11 @@ namespace ChildSessionDesktop
         private bool dragMoved;
         private Form _host;
         private Point _hostOffset = new Point(int.MinValue, int.MinValue);   // 相对主窗体客户区的偏移（拖动后记住，主窗体移动/缩放时跟随不复位）
-        private readonly Rectangle[] buttonRects;
+        private Rectangle[] buttonRects;
         private readonly Timer animTimer;
         private readonly TooltipForm tooltip;
-        private const int BtnW = 30, BtnH = 26, Gap = 6, Pad = 6;
+        private const int BtnW = 30, BtnH = 26, Gap = 6, Pad = 6;   // 逻辑像素基准（100% DPI）
+        private float _scale = 1f;   // 当前 DPI 缩放系数（DpiX/96），图标/圆角/间距按它放大，保证高 DPI 下与背景条匹配
 
         // 桌面就绪前不显示气泡，避免启动早期位置错误
         internal bool Ready;
@@ -1424,15 +1425,10 @@ namespace ChildSessionDesktop
             StartPosition = FormStartPosition.Manual;
             ShowInTaskbar = false;
             TopMost = true;
-            int n = labels.Length;   // 5 个按钮：全屏/显示/分辨率/设置/更多
-            buttonRects = new Rectangle[n];
-            int totalW = Pad;
-            for (int i = 0; i < n; i++)
-            {
-                buttonRects[i] = new Rectangle(totalW, Pad, BtnW, BtnH);
-                totalW += BtnW + Gap;
-            }
-            Size = new Size(totalW - Gap + Pad, Pad + BtnH + Pad);
+            AutoScaleMode = AutoScaleMode.None;   // 手动按 DPI 布局，避免 WinForms 自动缩放与自绘图标双重/漏缩放
+            using (var g = Graphics.FromHwnd(IntPtr.Zero))
+                _scale = Math.Max(1f, g.DpiX / 96f);
+            RebuildLayout();
             BackColor = Color.FromArgb(28, 28, 32);
             SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.UserPaint |
                      ControlStyles.OptimizedDoubleBuffer, true);
@@ -1442,6 +1438,41 @@ namespace ChildSessionDesktop
             animTimer.Start();
             tooltip = new TooltipForm();
             Disposed += delegate { animTimer.Stop(); animTimer.Dispose(); tooltip.Dispose(); };
+        }
+
+        // 按当前 _scale 重建按钮布局与窗体尺寸（构造、DPI 变化时调用）
+        private void RebuildLayout()
+        {
+            int bw = (int)Math.Round(BtnW * _scale), bh = (int)Math.Round(BtnH * _scale);
+            int gap = (int)Math.Round(Gap * _scale), pad = (int)Math.Round(Pad * _scale);
+            int n = labels.Length;
+            if (buttonRects == null || buttonRects.Length != n) buttonRects = new Rectangle[n];
+            int totalW = pad;
+            for (int i = 0; i < n; i++)
+            {
+                buttonRects[i] = new Rectangle(totalW, pad, bw, bh);
+                totalW += bw + gap;
+            }
+            Size = new Size(totalW - gap + pad, pad + bh + pad);
+            Invalidate();
+        }
+
+        // 运行中系统 DPI 变化（PerMonitorV2 热切换/跨监视器）：按新 DPI 重建布局并跟随主窗体重定位。
+        // 用 WM_DPICHANGED 消息而非 OnDpiChanged/DPIChangedEventArgs（项目引用的 WinForms 版本不支持该类型）
+        private const int WM_DPICHANGED = 0x02E0;
+        protected override void WndProc(ref Message m)
+        {
+            if (m.Msg == WM_DPICHANGED)
+            {
+                int newDpi = (ushort)((int)m.WParam & 0xFFFF);   // LOWORD = 新 DPI
+                if (newDpi > 0)
+                {
+                    _scale = Math.Max(1f, newDpi / 96f);
+                    RebuildLayout();
+                    if (_host != null) FollowHost(_host);
+                }
+            }
+            base.WndProc(ref m);
         }
 
         // 指示器平滑滑动：悬停优先，否则选中项；空闲时自停，避免持续重绘
@@ -1459,7 +1490,7 @@ namespace ChildSessionDesktop
                 else animTimer.Stop();
                 return;
             }
-            float targetCenter = buttonRects[targetIdx].X + BtnW / 2f;
+            float targetCenter = buttonRects[targetIdx].X + buttonRects[targetIdx].Width / 2f;
             if (indicatorX < 0 || indicatorX == -100f) indicatorX = targetCenter;
             else indicatorX += (targetCenter - indicatorX) * 0.15f;
             if (Math.Abs(indicatorX - targetCenter) < 0.5f) indicatorX = targetCenter;
@@ -1511,10 +1542,11 @@ namespace ChildSessionDesktop
             g.SmoothingMode = SmoothingMode.AntiAlias;
 
             // —— 背景条：黑色圆角，底部轻影（简洁，单层）——
+            int radBg = (int)Math.Round(9 * _scale);
             using (var sh = new SolidBrush(Color.FromArgb(70, 0, 0, 0)))
                 g.FillRectangle(sh, new Rectangle(0, Height - 2, Width, 2));
             var barRect = new Rectangle(0, 0, Width - 1, Height - 2);
-            using (var p = RoundedRectPath(barRect, 9))
+            using (var p = RoundedRectPath(barRect, radBg))
             using (var bg = new SolidBrush(Color.FromArgb(225, 24, 24, 28)))
                 g.FillPath(bg, p);
 
@@ -1525,7 +1557,7 @@ namespace ChildSessionDesktop
                 var ar = buttonRects[activeIdx];
                 int iw = ar.Width, ih = ar.Height;
                 Rectangle ind = new Rectangle((int)(indicatorX - iw / 2f), ar.Y, iw, ih);
-                using (var ip = RoundedRectPath(ind, 6))
+                using (var ip = RoundedRectPath(ind, (int)Math.Round(6 * _scale)))
                 using (var ib = new SolidBrush(Color.FromArgb(55, 255, 255, 255)))
                     g.FillPath(ib, ip);
             }
@@ -1536,20 +1568,24 @@ namespace ChildSessionDesktop
                 var r = buttonRects[i];
                 if (pressedIndex == i)
                 {
-                    int d = Math.Min(BtnW, BtnH) - 4;
+                    int d = Math.Min(r.Width, r.Height) - (int)Math.Round(4 * _scale);
                     Rectangle cir = new Rectangle(r.X + (r.Width - d) / 2, r.Y + (r.Height - d) / 2, d, d);
                     using (var hb = new SolidBrush(Color.FromArgb(90, 255, 255, 255)))
                         g.FillEllipse(hb, cir);
                 }
 
-                int cx = r.X + BtnW / 2, cy = r.Y + BtnH / 2;
-                if (pressedIndex == i) cy += 1;
-                DrawIcon(g, i, cx, cy);
+                int cx = r.X + r.Width / 2, cy = r.Y + r.Height / 2;
+                if (pressedIndex == i) cy += (int)Math.Round(1 * _scale);
+                // 图标按 DPI 缩放绘制（ScaleTransform 放大逻辑坐标，线条/圆角随之等比例放大）
+                var st = g.Save();
+                g.ScaleTransform(_scale, _scale);
+                DrawIcon(g, i, (int)(cx / _scale), (int)(cy / _scale));
+                g.Restore(st);
             }
 
             // —— 背景条描边 ——
             using (var pen = new Pen(Color.FromArgb(120, 60, 60, 68)))
-                g.DrawPath(pen, RoundedRectPath(barRect, 9));
+                g.DrawPath(pen, RoundedRectPath(barRect, radBg));
         }
 
         private void DrawIcon(Graphics g, int index, int cx, int cy)
@@ -1763,7 +1799,7 @@ namespace ChildSessionDesktop
         {
             base.OnResize(e);
             if (Region != null) Region.Dispose();
-            using (var p = RoundedRectPath(new Rectangle(0, 0, Width, Height), 9))
+            using (var p = RoundedRectPath(new Rectangle(0, 0, Width, Height), (int)Math.Round(9 * _scale)))
                 Region = new Region(p);
         }
     }
