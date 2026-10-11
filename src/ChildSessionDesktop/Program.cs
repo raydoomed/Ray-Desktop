@@ -175,6 +175,7 @@ namespace ChildSessionDesktop
         private double _lbLastA = -1;             // Letterbox 节流日志：客户区/aspect 变化才记
         private bool fullscreen;
         private Rectangle prevBounds;
+        private Rectangle _trackedScreen = Rectangle.Empty;   // 当前窗口所在屏幕（Bounds），跨屏拖动检测用
         private FormBorderStyle prevBorder;
         private ToolbarForm toolBar;                 // 独立悬浮工具栏（可拖动，含全屏/退出全屏）
         private const int WM_SIZING = 0x0214;
@@ -314,6 +315,31 @@ namespace ChildSessionDesktop
             base.OnMove(e);
             // 移动走标准 Windows 机制（分栏/双击最大化/贴边贴合都保留），这里只让工具栏跟随。
             if (toolBar != null) toolBar.FollowHost(this);
+            AutoFollowScreen();   // 拖到另一个显示器：自动把会话分辨率/窗口适配到新屏幕（不弹确认）
+        }
+
+        // 跨屏拖动跟随：窗口所在屏幕变化时，自动按新屏分辨率适配（等同自动选中"你的屏幕"）。
+        private void AutoFollowScreen()
+        {
+            if (Handle == IntPtr.Zero || IsDisposed) return;
+            if (fullscreen) return;   // 全屏铺满当前屏，跨屏无意义
+            var scr = Screen.FromControl(this).Bounds;
+            if (scr.Width <= 0 || scr.Height <= 0) return;
+            if (_trackedScreen == Rectangle.Empty) { _trackedScreen = scr; return; }   // 首次定位，仅记录
+            if (scr != _trackedScreen)
+            {
+                _trackedScreen = scr;   // 先记录再动作，避免 SetWindowPos 回触发本检测导致抖动
+                if (rdp != null)
+                {
+                    try
+                    {
+                        var client = (IMsRdpClient9)rdp.GetOcxObject();
+                        if (client.Connected == 1)
+                            ApplySessionResolution(scr.Width, scr.Height, false);
+                    }
+                    catch { }
+                }
+            }
         }
 
         protected override void WndProc(ref Message m)
@@ -794,13 +820,21 @@ namespace ChildSessionDesktop
                 "改分辨率", MessageBoxButtons.OKCancel, MessageBoxIcon.Question);
             if (result != DialogResult.OK) return;
 
+            ApplySessionResolution(w, h, true);
+        }
+
+        // 核心：不重连动态改会话分辨率（UpdateSessionDisplaySettings），更新宽高比并让窗口匹配新分辨率。
+        // confirmUi=true 时（手动菜单）失败弹提示框；自动跨屏跟随传 false，仅记日志、不打扰。
+        private void ApplySessionResolution(int w, int h, bool confirmUi)
+        {
             try
             {
                 var client = (IMsRdpClient9)rdp.GetOcxObject();
                 if (client.Connected != 1)
                 {
-                    MessageBox.Show(this, "尚未连接，无法改分辨率。", "改分辨率",
-                        MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    if (confirmUi)
+                        MessageBox.Show(this, "尚未连接，无法改分辨率。", "改分辨率",
+                            MessageBoxButtons.OK, MessageBoxIcon.Warning);
                     return;
                 }
                 float dpi = 96f;
@@ -847,8 +881,9 @@ namespace ChildSessionDesktop
             {
                 _resChangePending = false;
                 Program.Log("Resolution menu apply failed: " + ex);
-                MessageBox.Show(this, "改分辨率失败：" + ex.GetBaseException().Message, "改分辨率",
-                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                if (confirmUi)
+                    MessageBox.Show(this, "改分辨率失败：" + ex.GetBaseException().Message, "改分辨率",
+                        MessageBoxButtons.OK, MessageBoxIcon.Warning);
             }
         }
 
