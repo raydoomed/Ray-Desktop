@@ -957,13 +957,8 @@ namespace ChildSessionDesktop
             int T = area.Top + (area.Height - wh) / 2;
             if (L < area.Left) L = area.Left;
             if (T < area.Top) T = area.Top;
-            // 用 ClientSize 直接设置客户区：SetWindowPos 按外层尺寸（客户区+边框）设置时，
-            // Windows 对边框的舍入会导致客户区偏差（如 1366×768 变成 1364×760）。
-            // ClientSize 赋值保证客户区精确 == 所选分辨率，未拉伸/最大化还原时 1:1 无偏移。
-            ClientSize = new Size(cw, ch);
-            Location = new Point(
-                Math.Max(area.Left, area.Left + (area.Width - cw) / 2),
-                Math.Max(area.Top, area.Top + (area.Height - ch) / 2));
+            SetWindowPos(Handle, IntPtr.Zero, L, T, ww, wh,
+                SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
             SyncRestoreRect();   // 同步 Windows 还原尺寸：改分辨率后首次移动窗口，拖动轮廓不再用旧尺寸
             Program.Log("窗口匹配会话 " + sessW + "x" + sessH + " → 窗口 " + ww + "x" + wh
                 + " 实际客户区 " + ClientSize.Width + "x" + ClientSize.Height
