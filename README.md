@@ -40,7 +40,7 @@ It is not a virtual machine, nor is it Windows' `Win + Tab` virtual desktops. Th
 - ⚡ **Password-free, instant start**: reuses the current sign-in identity and auto-logs in via Windows-native Child Session
 - 🧩 **Everything shared**: same kernel and file system, software is ready to use, no separate install
 - 📋 **Clipboard interop**: text is redirected automatically; files/folders are copied both ways via a path bridge
-- 🪟 **Fixed-resolution aspect scaling**: session resolution is fixed; the window scales as an aspect-preserving Letterbox, so the picture never deforms and the mouse stays aligned
+- 🪟 **Fixed & dynamic display modes**: fixed mode pins the session resolution and scales the window as an aspect-preserving Letterbox, so the picture never deforms and the mouse stays aligned; dynamic mode lets the session resolution follow the window in real time. Switch between them anytime from the floating toolbar's **Display** button
 - ⌨️ **Shortcut forwarding**: while the Child Session has focus, `Win` key combinations are handled by the Child Session
 - 🔌 **Clean exit**: closing the window automatically logs off the Child Session
 
@@ -183,7 +183,7 @@ The status is checked every 750 ms; if a connection stays in "connecting" for mo
 
 The session desktop resolution is **fixed** at startup to the host's full resolution (e.g. host 3440×1440 → session 3440×1440). By default the window takes 90% of the host width at the host aspect; when you drag-resize, the window aspect is locked to the host aspect and the picture scales as an aspect-preserving Letterbox; the resolution itself does not change.
 
-Because the resolution is fixed and the window only scales proportionally, **running a game windowed means no deformation and aligned mouse** — no need to size the window before starting a game or avoid resizing it mid-play. This is the default mode; if you want the resolution to change with the window in real time, launch with `--dynamic` (not suitable for borderless-windowed games, the picture gets stretched).
+Because the resolution is fixed and the window only scales proportionally, **running a game windowed means no deformation and aligned mouse** — no need to size the window before starting a game or avoid resizing it mid-play. This is the default mode. To make the session resolution follow the window in real time, open the floating toolbar's **Display** button and switch to dynamic mode (not suitable for borderless-windowed games, the picture gets stretched); switch back to fixed anytime. The **Resolution** button on the same toolbar picks the session resolution for both modes.
 
 The minimum window size keeps the host aspect (width from `640`, height proportional); the session display size is limited to 200–8192 pixels, and width is rounded to an even number.
 
@@ -248,7 +248,7 @@ On first use the host program tries to write a Run entry for the current user; a
 | `0x00000C07` | Microsoft defines it as `SSL_ERR_ACCOUNT_RESTRICTION` (account restricted). Confirm the enable and sign-out/sign-in flow completed, and check the account and policy; this code alone does not prove an empty password. See [OnDisconnected](https://learn.microsoft.com/windows/win32/termserv/imstscaxevents-ondisconnected). |
 | `0x00000001` | Microsoft defines it as a local disconnect, not an error code. If it appears before the connection is established, you cannot conclude from it whether the Child Session briefly came up; investigate with the surrounding log and `Connected` state. |
 | Connection state stuck at `2` | Timeout after 45 s. Check Windows version, Child Sessions state, logon timing, and system policy. |
-| `UpdateSessionDisplaySettings` returns `0x8000FFFF` | Dynamic resolution update failed in `--dynamic` mode only. The program delays and retries; the default fixed-resolution mode never makes this call. |
+| `UpdateSessionDisplaySettings` returns `0x8000FFFF` | Dynamic resolution update failed in dynamic mode only. The program delays and retries; the default fixed-resolution mode never makes this call. |
 | Windows is continuing the sign-in | A normal notification during Child Session logon, not a failure; the program treats it as an informational event. |
 | “缺少管理员启用程序” (missing admin enable program) | Incomplete delivery. Re-copy the whole `Raydesktop` folder. |
 | COM/ActiveX creation failed | Confirm Windows' `mstscax.dll` is available, the program and DLLs are in the same folder, and rebuild/verify on the target Windows version. |
@@ -268,7 +268,7 @@ For disconnect codes, Microsoft recommends using the RDP control's `GetErrorDesc
 - Anything that depends on the current interactive desktop, console session, or a specific GPU path is not guaranteed to work.
 - Games, anti-cheat, GPU acceleration, exclusive fullscreen, Raw Input, DRM video, camera, and audio redirection are not fully verified.
 - The same Windows user, OS version, group policy, and when Child Sessions were enabled all affect password-free connection; we cannot promise it works the moment the program is copied to an arbitrary machine.
-- There is currently no installer/auto-update, settings page, detailed RDP error descriptions, resolution config, or session-management UI.
+- There is currently no installer/auto-update, settings page, detailed RDP error descriptions, or session-management UI.
 - If you need a reliable isolation environment, independent GPU/game compatibility, or cross-device consistency, evaluate Hyper-V VM, Windows Sandbox, or a separate Windows account.
 
 ### Game compatibility

@@ -164,7 +164,8 @@ namespace ChildSessionDesktop
         private DateTime nextResizeAttempt = DateTime.MinValue;
         private int resizeRetryCount;
 
-        private readonly bool dynamicMode;   // 固定分辨率(默认) / --dynamic 动态分辨率（仅启动参数决定）
+        internal bool dynamicMode;   // 固定分辨率(默认) / 动态分辨率；启动参数决定初始值，工具栏"显示"按钮可运行时切换
+        private int _fixedSessW, _fixedSessH;   // 进入动态模式前的固定分辨率；切回固定时恢复它（而不是动态时的临时窗口尺寸）
         private double aspect;
         private int currentSessW, currentSessH;   // 当前生效的会话分辨率（用于分辨率下拉打勾）
         private int fsEnterW, fsEnterH;           // 进入全屏时的会话分辨率（退出时判断是否改过）
@@ -235,6 +236,7 @@ namespace ChildSessionDesktop
             if (screenW <= 0 || screenH <= 0) { screenW = 1280; screenH = 720; }
             aspect = (double)screenW / (double)screenH;
             currentSessW = screenW; currentSessH = screenH;
+            if (!dynamicMode) { _fixedSessW = screenW; _fixedSessH = screenH; }   // 固定启动：记录初始固定分辨率（主机屏幕）
             int initialW = (int)(screenW * 0.9);
             int initialH = (int)(initialW / aspect + 0.5);
             ClientSize = new Size(initialW, initialH);
@@ -245,8 +247,8 @@ namespace ChildSessionDesktop
             // RDP 控件用 Dock=None + ApplyLetterbox 等比居中：控件宽高比恒等于画面宽高比，
             // 避免 ActiveX(SmartSizing) 在比例不匹配时用灰色填充剩余区域（灰底）。
             rdp = new ChildSessionControl { Dock = DockStyle.None, BackColor = Color.Black };
-            if (dynamicMode) rdp.Resize += delegate { QueueDisplayResize(true); };
-            else Program.Log("Letterbox (fixed-resolution) mode enabled; session resolution is pinned to the host screen");
+            rdp.Resize += delegate { if (dynamicMode) QueueDisplayResize(true); };   // 动态模式：控件尺寸变化 → 会话分辨率跟随
+            if (!dynamicMode) Program.Log("Letterbox (fixed-resolution) mode enabled; session resolution is pinned to the host screen");
             clipboardRelay = new ClipboardFileRelay(false);
             clipboardRelayTimer = new Timer { Interval = 250 };
             clipboardRelayTimer.Tick += delegate
@@ -268,7 +270,8 @@ namespace ChildSessionDesktop
             Shown += delegate
             {
                 Program.Log("Host form shown");
-                if (!dynamicMode) ApplyLetterbox();   // 窗体一显示就把控件摆到正确矩形，避免左上角小黑块
+                if (dynamicMode) SetDynamicLayout();      // 动态模式：控件铺满客户区（会话分辨率随窗口）
+                else ApplyLetterbox();                    // 固定模式：窗体一显示就把控件摆到正确矩形，避免左上角小黑块
                 // 工具栏不在此创建：等桌面完全显示、分辨率就位后再创建（见连接就绪回调）
                 ClipboardFileRelay.RegisterChildAgent();
                 BeginInvoke((MethodInvoker)ConnectChildSession);
@@ -301,7 +304,8 @@ namespace ChildSessionDesktop
                 _lastMaximized = max;
                 if (toolBar != null) toolBar.ResetToTopCenter();
             }
-            if (!dynamicMode) ApplyLetterbox();
+            if (dynamicMode) SetDynamicLayout();   // 动态模式：控件铺满客户区 → Resize 触发 QueueDisplayResize（分辨率随窗口）
+            else ApplyLetterbox();
             if (toolBar != null) toolBar.FollowHost(this);
         }
 
@@ -426,6 +430,136 @@ namespace ChildSessionDesktop
             }
         }
 
+        // 动态模式布局：控件铺满客户区（会话分辨率随窗口尺寸实时变化）。
+        private void SetDynamicLayout()
+        {
+            if (rdp == null || rdp.IsDisposed) return;
+            rdp.SetBounds(0, 0, Math.Max(1, ClientSize.Width), Math.Max(1, ClientSize.Height));
+        }
+
+        // "显示"按钮下拉：选固定分辨率 / 动态分辨率，当前模式打勾（对两种模式分辨率按钮都可用）。
+        private bool ShowDisplayModeMenuAt(Rectangle anchor)
+        {
+            var menu = new ContextMenuStrip { RenderMode = ToolStripRenderMode.System };
+            menu.ShowImageMargin = false;
+            menu.ShowCheckMargin = true;   // 显示勾选列，标记当前生效的模式
+            var itemFixed = new ToolStripMenuItem("固定分辨率");
+            itemFixed.Click += delegate { SetDisplayMode(false); };
+            itemFixed.Checked = !dynamicMode;
+            var itemDynamic = new ToolStripMenuItem("动态分辨率");
+            itemDynamic.Click += delegate { SetDisplayMode(true); };
+            itemDynamic.Checked = dynamicMode;
+            menu.Items.Add(itemFixed);
+            menu.Items.Add(itemDynamic);
+            Point pos = new Point(anchor.Left, anchor.Bottom);
+            var wa = Screen.FromControl(this).WorkingArea;
+            pos.X = Math.Max(wa.Left, Math.Min(pos.X, wa.Right - 120));
+            pos.Y = Math.Max(wa.Top, Math.Min(pos.Y, wa.Bottom - 60));
+            menu.Show(pos);
+            return true;
+        }
+
+        private void SetDisplayMode(bool mode)
+        {
+            if (dynamicMode == mode) return;
+            if (mode)
+            {
+                // 进入动态前，记住当前固定分辨率；切回固定时恢复它（而不是动态时随窗口变小的临时值）
+                _fixedSessW = currentSessW; _fixedSessH = currentSessH;
+            }
+            dynamicMode = mode;
+            Program.Log("Display mode switched to " + (mode ? "dynamic" : "fixed"));
+            // F11 全屏热键仅在固定模式注册（动态模式画面铺满、窗口自由，不提供 F11）
+            if (Handle != IntPtr.Zero)
+            {
+                if (mode)
+                {
+                    if (!UnregisterHotKey(Handle, 1))
+                        Program.Log("Could not unregister F11 hotkey on switching to dynamic; error " + Marshal.GetLastWin32Error());
+                }
+                else if (!RegisterHotKey(Handle, 1, 0, VK_F11))
+                {
+                    Program.Log("Could not register F11 hotkey on switching to fixed; Windows error " + Marshal.GetLastWin32Error());
+                }
+            }
+            if (mode)
+            {
+                // 切到动态：控件铺满客户区，但保持当前会话分辨率（切动态瞬间不改分辨率）。
+                // 预置 lastRequestedDisplaySize 为当前窗口尺寸，使铺满触发的 rdp.Resize→ApplyDisplaySize
+                // 因"请求尺寸未变"而跳过；用户实际拉窗口 → rdp 尺寸变化 → 分辨率才跟随窗口。
+                SetDynamicLayout();
+                HoldCurrentDisplaySize();
+            }
+            else
+            {
+                // 切到固定：停掉动态模式的 resize 定时器，防止残留 ApplyDisplaySize 用固定布局的
+                // rdp 尺寸覆盖固定分辨率（否则分辨率菜单不会打勾"你的屏幕"）。
+                if (displayResizeTimer != null) displayResizeTimer.Stop();
+                // 恢复进入动态前的固定分辨率（从未固定过则用主机屏幕），把会话分辨率也改回去，
+                // 再让窗口匹配该比例并 Letterbox 居中。
+                int sw = Screen.PrimaryScreen.Bounds.Width;
+                int sh = Screen.PrimaryScreen.Bounds.Height;
+                if (sw <= 0 || sh <= 0) { sw = 1280; sh = 720; }
+                int fw = (_fixedSessW > 0 && _fixedSessH > 0) ? _fixedSessW : sw;
+                int fh = (_fixedSessW > 0 && _fixedSessH > 0) ? _fixedSessH : sh;
+                fw &= ~1;
+                try
+                {
+                    var client = (IMsRdpClient9)rdp.GetOcxObject();
+                    if (client.Connected == 1)
+                    {
+                        float dpi = 96f;
+                        try { using (var gr = rdp.CreateGraphics()) dpi = gr.DpiX; } catch { }
+                        uint pw = ToMillimeters(fw, dpi);
+                        uint ph = ToMillimeters(fh, dpi);
+                        client.UpdateSessionDisplaySettings((uint)fw, (uint)fh, pw, ph, 0, 100, 100);
+                        _resChangePending = true;   // 改分辨率期间屏蔽 750ms readback 的旧值干扰
+                        Program.Log("Display mode fixed: session set to " + fw + "x" + fh);
+                    }
+                }
+                catch (Exception ex) { Program.Log("Could not set fixed session resolution: " + ex.GetBaseException().Message); }
+                currentSessW = fw; currentSessH = fh; aspect = (double)fw / (double)fh;
+                MatchWindowToSession(fw, fh);
+                ApplyLetterbox();
+                // 900ms 后读回真实分辨率校正，并放行 750ms readback（与分辨率菜单一致）
+                var late = new Timer { Interval = 900 };
+                late.Tick += delegate
+                {
+                    late.Stop(); late.Dispose();
+                    try
+                    {
+                        var c2 = (IMsRdpClient9)rdp.GetOcxObject();
+                        int dw = c2.DesktopWidth, dh = c2.DesktopHeight;
+                        if (dw > 0 && dh > 0) { currentSessW = dw; currentSessH = dh; aspect = (double)dw / (double)dh; }
+                    }
+                    catch { }
+                    _resChangePending = false;
+                    MatchWindowToSession(currentSessW, currentSessH);
+                    if (toolBar != null) toolBar.FollowHost(this);
+                };
+                late.Start();
+            }
+            if (toolBar != null)
+            {
+                toolBar.IsDynamicMode = mode;
+                toolBar.Invalidate();
+                toolBar.FollowHost(this);
+            }
+        }
+
+        // 预置 lastRequestedDisplaySize 为当前窗口尺寸，使随后触发的 ApplyDisplaySize
+        // 因"请求尺寸未变"而跳过——即切动态/动态选分辨率时不覆盖刚设定的会话分辨率。
+        private void HoldCurrentDisplaySize()
+        {
+            try
+            {
+                lastRequestedDisplaySize = new Size(
+                    Math.Max(200, Math.Min(8192, rdp.ClientSize.Width)) & ~1,
+                    Math.Max(200, Math.Min(8192, rdp.ClientSize.Height)));
+            }
+            catch { }
+        }
+
         private void OpenLogFolder()
         {
             try
@@ -474,7 +608,8 @@ namespace ChildSessionDesktop
                 }
                 Bounds = prevBounds;
             }
-            ApplyLetterbox();
+            if (dynamicMode) SetDynamicLayout();   // 动态模式全屏：控件铺满（分辨率=全屏客户区）
+            else ApplyLetterbox();                 // 固定模式全屏：画面等比居中，四周黑边
             if (toolBar != null) toolBar.UpdateState(fullscreen);
             Program.Log("全屏 " + (fullscreen ? "进" : "出") + " Bounds=" + Bounds + " client=" + ClientSize.Width + "x" + ClientSize.Height
                 + " aspect=" + aspect.ToString("0.0000") + " sess=" + currentSessW + "x" + currentSessH);
@@ -494,6 +629,8 @@ namespace ChildSessionDesktop
             toolBar.Ready = true;
             toolBar.ToggleFullscreen = ToggleFullscreen;
             toolBar.ShowResMenu = ShowResMenuAt;
+            toolBar.ShowDisplayModeMenu = ShowDisplayModeMenuAt;
+            toolBar.IsDynamicMode = dynamicMode;
             toolBar.FollowHost(this);
             toolBar.Show();
         }
@@ -569,8 +706,12 @@ namespace ChildSessionDesktop
                 currentSessW = w; currentSessH = h;
                 aspect = (double)w / (double)h;
                 if (toolBar != null) toolBar.ResetToTopCenter();   // 分辨率变化→工具栏回顶部居中，避免旧偏移跑出变小后的窗口
-                // 窗口匹配新比例（非全屏：窗口比例=画面比例 → 控件铺满无黑边；全屏：只等比重排控件）
+                // 窗口匹配新比例（非全屏：窗口比例=画面比例 → 控件铺满无黑边；全屏：只等比重排控件）。
+                // 固定/动态一致：选什么分辨率，会话分辨率就是什么，窗口自动匹配该比例铺满。
                 MatchWindowToSession(w, h);
+                // 动态模式下选分辨率后，预置 lastRequestedDisplaySize 为当前窗口尺寸，
+                // 阻止随后的 rdp.Resize→ApplyDisplaySize 用窗口尺寸覆盖刚选定的分辨率（否则要选两次才生效）。
+                if (dynamicMode) HoldCurrentDisplaySize();
                 // ActiveX 显示面异步重建：等 900ms 后读回真实分辨率，再校正一次（对齐 workbuddy）
                 var late = new Timer { Interval = 900 };
                 late.Tick += delegate
@@ -590,6 +731,7 @@ namespace ChildSessionDesktop
                     catch { }
                     _resChangePending = false;   // 校正完成，放行 UpdateConnectionStatus 的 readback
                     MatchWindowToSession(currentSessW, currentSessH);   // 内部已 ApplyLetterbox
+                    // 画面刷新改由 ActiveX 的 OnResize 事件从源头驱动（见 HandleRemoteResize）
                     if (toolBar != null) toolBar.FollowHost(this);
                 };
                 late.Start();
@@ -636,7 +778,8 @@ namespace ChildSessionDesktop
             Program.Log("窗口匹配会话 " + sessW + "x" + sessH + " → 窗口 " + ww + "x" + wh
                 + " 实际客户区 " + ClientSize.Width + "x" + ClientSize.Height
                 + "（缩放 " + s.ToString("0.000") + " aspect=" + aspect.ToString("0.0000") + "）");
-            ApplyLetterbox();
+            if (dynamicMode) SetDynamicLayout();   // 动态模式：控件铺满客户区（分辨率随窗口）
+            else ApplyLetterbox();                 // 固定模式：控件等比居中
             if (toolBar != null) toolBar.FollowHost(this);
         }
 
@@ -885,6 +1028,7 @@ namespace ChildSessionDesktop
         {
             if (eventsAttached) return;
             rdpEvents = (IMsTscAxEvents_Event)ocx;
+            rdpEvents.OnRemoteDesktopSizeChange += HandleRemoteResize;
             rdpEvents.OnDisconnected += HandleDisconnected;
             rdpEvents.OnFatalError += HandleFatalError;
             rdpEvents.OnLogonError += HandleLogonError;
@@ -908,6 +1052,31 @@ namespace ChildSessionDesktop
                 Program.Log("Could not query RDP clipboard and drive redirection state after connect: " +
                     ex.GetBaseException().Message);
             }
+        }
+
+        private void HandleRemoteResize(int width, int height)
+        {
+            try
+            {
+                if (rdp == null || rdp.IsDisposed) return;
+                if (InvokeRequired) { BeginInvoke((MethodInvoker)delegate { HandleRemoteResize(width, height); }); return; }
+                if (width > 0 && height > 0)
+                {
+                    currentSessW = width; currentSessH = height;
+                    aspect = (double)width / (double)height;
+                }
+                // 会话分辨率真正变化时 ActiveX 触发此事件。根因：切换分辨率时 rdp 尺寸被提前
+                // 设为最终值，等此事件触发时 ActiveX 已就绪但尺寸未再变化，它忽略相同尺寸的 Set，
+                // 导致画面（底部任务栏）一直保持旧渲染不重绘。拉窗口有效是因为那时尺寸才真正变化。
+                // 故此事件中先让 rdp 尺寸变化一次，强制 ActiveX 重新缩放画面。
+                Program.Log("OnRemoteDesktopSizeChange: session=" + currentSessW + "x" + currentSessH
+                    + " client=" + ClientSize.Width + "x" + ClientSize.Height);
+                if (rdp.Size.Width > 2 && rdp.Size.Height > 2)
+                    rdp.Size = new Size(rdp.Size.Width - 1, rdp.Size.Height - 1);
+                ApplyLetterbox();
+                if (toolBar != null) toolBar.FollowHost(this);
+            }
+            catch (Exception ex) { Program.Log("OnRemoteDesktopSizeChange handler: " + ex); }
         }
 
         private void HandleDisconnected(int reason)
@@ -996,6 +1165,7 @@ namespace ChildSessionDesktop
         private void ApplyDisplaySize()
         {
             if (closing || rdp.IsDisposed || !rdp.IsHandleCreated) return;
+            if (!dynamicMode) return;   // 只允许动态模式改分辨率；固定模式靠 UpdateSessionDisplaySettings 主动改，残留定时器不得干预
             try
             {
                 var client = (IMsRdpClient9)rdp.GetOcxObject();
@@ -1119,9 +1289,10 @@ namespace ChildSessionDesktop
     {
         internal Func<bool> ToggleFullscreen;
         internal Func<Rectangle, bool> ShowResMenu;   // 分辨率按钮回调（锚点=按钮屏幕矩形，由主窗体弹下拉）
+        internal Func<Rectangle, bool> ShowDisplayModeMenu;   // "显示"按钮回调：弹下拉选固定/动态分辨率模式
+        internal bool IsDynamicMode;                  // 当前显示模式：true=动态（会话分辨率随窗口）/ false=固定
         private readonly string[] labels = { "全屏", "显示", "分辨率", "设置", "更多", "拖动" };
         private const int DragBtnIndex = 5;   // 最右侧的专用"拖动"按钮：只有点住它才能移动工具栏
-        private bool fullscreenState;
         private int hoverIndex = -1;
         private int pressedIndex = -1;
         private int selectedIndex = -1;
@@ -1194,7 +1365,6 @@ namespace ChildSessionDesktop
 
         internal void UpdateState(bool fs)
         {
-            fullscreenState = fs;
             Fullscreen = fs;
             Invalidate();
         }
@@ -1283,7 +1453,7 @@ namespace ChildSessionDesktop
                 switch (index)
                 {
                     case 0: // 全屏 / 退出全屏：最大化窗口 / 还原窗口图标
-                        if (fullscreenState)
+                        if (Fullscreen)
                         {
                             g.DrawRectangle(pen, cx - 8, cy - 6, 13, 13);   // 后窗
                             g.DrawRectangle(pen, cx - 4, cy - 1, 13, 13);   // 前窗（还原）
@@ -1349,6 +1519,12 @@ namespace ChildSessionDesktop
             return p;
         }
 
+        internal string HoverText(int idx)
+        {
+            if (idx == 1) return IsDynamicMode ? "显示 · 动态" : "显示 · 固定";   // 显示按钮：tooltip 显示当前模式
+            return labels[idx];
+        }
+
         protected override void OnMouseDown(MouseEventArgs e)
         {
             if (e.Button == MouseButtons.Left)
@@ -1379,7 +1555,7 @@ namespace ChildSessionDesktop
                 animTimer.Start();   // 重启滑动动画（进入按钮或离开按钮区）
                 if (idx >= 0)
                 {
-                    if (Ready) tooltip.ShowFor(RectangleToScreen(buttonRects[idx]), labels[idx]);
+                    if (Ready) tooltip.ShowFor(RectangleToScreen(buttonRects[idx]), HoverText(idx));
                     else tooltip.HideAway();   // 桌面未就绪不显示气泡
                 }
                 else tooltip.HideAway();
@@ -1437,6 +1613,14 @@ namespace ChildSessionDesktop
                     {
                         // 分辨率按钮：由主窗体弹出下拉，指示器停在分辨率按钮上
                         ShowResMenu(RectangleToScreen(buttonRects[2]));
+                        selectedIndex = hit;
+                        Invalidate();
+                        animTimer.Start();
+                    }
+                    else if (hit == 1 && ShowDisplayModeMenu != null)
+                    {
+                        // 显示按钮：弹下拉选固定/动态分辨率模式，指示器停在显示按钮上
+                        ShowDisplayModeMenu(RectangleToScreen(buttonRects[1]));
                         selectedIndex = hit;
                         Invalidate();
                         animTimer.Start();
