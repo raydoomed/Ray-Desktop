@@ -176,6 +176,7 @@ namespace ChildSessionDesktop
         private bool fullscreen;
         private Rectangle prevBounds;
         private Rectangle _trackedScreen = Rectangle.Empty;   // 当前窗口所在屏幕（Bounds），跨屏拖动检测用
+        private bool _followScreenRes = true;   // 当前分辨率是否"跟随你的屏幕"：true 时跨屏自动改到新屏；手动选了特定分辨率后置 false，跨屏保持手动值不动
         private FormBorderStyle prevBorder;
         private ToolbarForm toolBar;                 // 独立悬浮工具栏（可拖动，含全屏/退出全屏）
         private const int WM_SIZING = 0x0214;
@@ -329,13 +330,17 @@ namespace ChildSessionDesktop
             if (scr != _trackedScreen)
             {
                 _trackedScreen = scr;   // 先记录再动作，避免 SetWindowPos 回触发本检测导致抖动
-                if (rdp != null)
+                // 仅当当前分辨率在"跟随你的屏幕"状态才跨屏改到新屏；手动选了特定分辨率（_followScreenRes=false）则保持手动值，不覆盖
+                if (_followScreenRes && rdp != null)
                 {
                     try
                     {
                         var client = (IMsRdpClient9)rdp.GetOcxObject();
                         if (client.Connected == 1)
-                            ApplySessionResolution(scr.Width, scr.Height, false);
+                        {
+                            int w = scr.Width & ~1;   // RDP 要求偶数像素宽（与手动选择一致），避免奇数宽失败
+                            ApplySessionResolution(w, scr.Height, false);
+                        }
                     }
                     catch { }
                 }
@@ -809,7 +814,8 @@ namespace ChildSessionDesktop
             int sw = Screen.FromControl(this).Bounds.Width;   // "你的屏幕"= 窗口当前所在屏幕（多显示器跟随）
             int sh = Screen.FromControl(this).Bounds.Height;
             int w = pickW, h = pickH;
-            if (w == 0) { w = sw; h = sh; }
+            if (w == 0) { w = sw; h = sh; _followScreenRes = true; }   // "你的屏幕"：跨屏继续跟随
+            else _followScreenRes = false;                             // 手动选特定分辨率：跨屏保持此值，不再自动改
             if (w <= 0 || h <= 0) return;
             w &= ~1;   // RDP 要求偶数像素宽（与连接时一致），避免奇数宽导致 UpdateSessionDisplaySettings 失败
 
