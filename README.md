@@ -187,6 +187,8 @@ Because the resolution is fixed and the window only scales proportionally, **run
 
 The minimum window size keeps the host aspect (width from `640`, height proportional); the session display size is limited to 200–8192 pixels, and width is rounded to an even number.
 
+In **dynamic mode** the session resolution always equals the window's logical client area, so a window that hasn't been manually resized (including maximize → restore) stays exactly 1:1 with the picked resolution — on any DPI (100%–200%) and across multiple monitors. Dragging the window to another monitor auto-follows that monitor's resolution (the "Your Screen" entry), while a manually picked resolution is kept when moving across screens. **Fullscreen and maximize behave consistently**: fullscreen adopts the whole-screen resolution and restores on exit, just as maximize follows the working area.
+
 ### Clipboard & file copy
 
 Text and normal clipboard formats keep using the RDP ActiveX automatic clipboard redirection. Files/folders use a **local path bridge** — the two sessions share the user profile and file system, but the clipboards are independent. You keep right-click copy/paste or `Ctrl+C`/`Ctrl+V` in Explorer, with no extra button.
