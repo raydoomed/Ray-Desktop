@@ -171,7 +171,6 @@ namespace ChildSessionDesktop
         private int _fixedSessW, _fixedSessH;   // 进入动态模式前的固定分辨率；切回固定时恢复它（而不是动态时的临时窗口尺寸）
         private double aspect;
         private int currentSessW, currentSessH;   // 当前生效的会话分辨率（用于分辨率下拉打勾）
-        private int fsEnterW, fsEnterH;           // 进入全屏时的会话分辨率（退出时判断是否改过）
         private bool _resChangePending;           // 改分辨率期间屏蔽 UpdateConnectionStatus 的旧值 readback 干扰
         private bool _lastMaximized;              // 检测最大化状态切换：进最大化时重置工具栏偏移（还原后也回顶部居中）
         private int _lbLastW = -1, _lbLastH = -1;
@@ -325,7 +324,7 @@ namespace ChildSessionDesktop
                 }
                 if (toolBar != null) toolBar.ResetToTopCenter();
             }
-            if (dynamicMode) SetDynamicLayout();   // 动态模式：控件铺满客户区 → Resize 触发 QueueDisplayResize（分辨率随窗口）
+            if (dynamicMode) SetDynamicLayout();   // 动态模式：控件铺满客户区（分辨率跟随只由 WM_EXITSIZEMOVE/最大化触发）
             else ApplyLetterbox();
             if (toolBar != null) toolBar.FollowHost(this);
         }
@@ -579,11 +578,9 @@ namespace ChildSessionDesktop
             }
             if (mode)
             {
-                // 切到动态：控件铺满客户区，但保持当前会话分辨率（切动态瞬间不改分辨率）。
-                // 预置 lastRequestedDisplaySize 为当前窗口尺寸，使铺满触发的 rdp.Resize→ApplyDisplaySize
-                // 因"请求尺寸未变"而跳过；用户实际拉窗口 → rdp 尺寸变化 → 分辨率才跟随窗口。
+                // 切到动态：控件铺满客户区，保持当前会话分辨率（切动态瞬间不改分辨率）。
+                // 分辨率跟随只由用户拖拽结束（WM_EXITSIZEMOVE）/最大化触发，铺满本身不触发。
                 SetDynamicLayout();
-                HoldCurrentDisplaySize();
             }
             else
             {
@@ -686,7 +683,6 @@ namespace ChildSessionDesktop
             {
                 prevBounds = Bounds;
                 prevBorder = FormBorderStyle;
-                fsEnterW = currentSessW; fsEnterH = currentSessH;   // 记住进入全屏时的会话分辨率
                 FormBorderStyle = FormBorderStyle.None;
                 Bounds = Screen.FromControl(this).Bounds;   // 全屏：窗口=屏幕，控件由 Letterbox 等比居中（画面比例），四周纯黑边
             }
@@ -694,17 +690,11 @@ namespace ChildSessionDesktop
             {
                 FormBorderStyle = prevBorder;
                 if (toolBar != null) toolBar.ResetToTopCenter();   // 退出全屏统一重置到顶部居中（避免旧偏移跑出窗口）
-                // 全屏期间改过分辨率 → 退出后把窗口重新匹配到当前会话分辨率（1:1，ActiveX 不放大 → 无灰底）。
-                // 未改过 → 恢复进入前的窗口原状。
-                if (currentSessW != fsEnterW || currentSessH != fsEnterH)
-                {
-                    MatchWindowToSession(currentSessW, currentSessH);
-                    if (toolBar != null) toolBar.FollowHost(this);
-                    return fullscreen;
-                }
+                // 全屏是临时放大：退出一律恢复全屏前窗口原状。动态模式下，下面 QueueDisplayResize
+                // 会把会话分辨率跟随回还原后的窗口尺寸（= 全屏前的会话分辨率）。
                 Bounds = prevBounds;
             }
-            if (dynamicMode) SetDynamicLayout();   // 动态模式全屏：控件铺满（分辨率=全屏客户区）
+            if (dynamicMode) { SetDynamicLayout(); QueueDisplayResize(); }   // 动态全屏：会话分辨率跟随窗口（进入=整屏，退出=还原窗口）
             else ApplyLetterbox();                 // 固定模式全屏：画面等比居中，四周黑边
             if (toolBar != null) toolBar.UpdateState(fullscreen);
             Program.Log("全屏 " + (fullscreen ? "进" : "出") + " Bounds=" + Bounds + " client=" + ClientSize.Width + "x" + ClientSize.Height
