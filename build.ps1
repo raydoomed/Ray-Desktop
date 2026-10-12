@@ -3,7 +3,9 @@ $compiler = Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'
 if (-not (Test-Path -LiteralPath $compiler)) {
     $compiler = Join-Path $env:WINDIR 'Microsoft.NET\Framework\v4.0.30319\csc.exe'
 }
-if (-not (Test-Path -LiteralPath $compiler)) { throw 'Could not find the .NET Framework C# compiler.' }
+if (-not (Test-Path -LiteralPath $compiler)) {
+    throw 'Could not find the .NET Framework C# compiler (csc.exe). Install .NET Framework 4.x or Visual Studio Build Tools.'
+}
 
 $output = Join-Path $PSScriptRoot 'Raydesktop'
 $references = @('/r:System.dll', '/r:System.Drawing.dll', '/r:System.Windows.Forms.dll')
@@ -12,19 +14,37 @@ function Publish-BuildOutput([string]$temporary, [string]$target) {
     [IO.File]::Delete($temporary)
 }
 
-$childSource = Join-Path $PSScriptRoot 'src\ChildSessionDesktop\Program.cs'
-$clipboardRelaySource = Join-Path $PSScriptRoot 'src\ChildSessionDesktop\ClipboardFileRelay.cs'
+# ---- Ray Desktop (ChildSessionDesktop) 源文件 ----
+$childSources = @(
+    (Join-Path $PSScriptRoot 'src\ChildSessionDesktop\Program.cs'),
+    (Join-Path $PSScriptRoot 'src\ChildSessionDesktop\Strings.cs'),
+    (Join-Path $PSScriptRoot 'src\ChildSessionDesktop\ClipboardFileRelay.cs'),
+    (Join-Path $PSScriptRoot 'src\ChildSessionDesktop\DesktopForm.cs'),
+    (Join-Path $PSScriptRoot 'src\ChildSessionDesktop\ChildSessionControl.cs'),
+    (Join-Path $PSScriptRoot 'src\ChildSessionDesktop\ToolbarForm.cs'),
+    (Join-Path $PSScriptRoot 'src\ChildSessionDesktop\TooltipForm.cs')
+)
 $childManifest = Join-Path $PSScriptRoot 'src\ChildSessionDesktop\app.manifest'
 $icon = Join-Path $PSScriptRoot 'assets\RayDesktop.ico'
 $childTarget = Join-Path $output 'Raydesktop.exe'
 $childTemporary = Join-Path $output 'Raydesktop.build.exe'
-$aximpCandidates = @(
-    'C:\Program Files (x86)\Microsoft SDKs\Windows\v10.0A\bin\NETFX 4.8 Tools\AxImp.exe',
-    'C:\Program Files (x86)\Microsoft SDKs\Windows\v10.0A\bin\NETFX 4.7 Tools\AxImp.exe',
-    'C:\Program Files (x86)\Microsoft SDKs\Windows\v10.0A\bin\NETFX 4.6 Tools\AxImp.exe'
+
+# ---- AxImp.exe 探测：递归扫 Windows SDK 目录（不写死本机路径），找不到给清晰报错 ----
+$aximp = $null
+$sdkRoots = @(
+    'C:\Program Files (x86)\Microsoft SDKs\Windows',
+    'C:\Program Files\Microsoft SDKs\Windows'
 )
-$aximp = $aximpCandidates | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
-if (-not $aximp) { throw 'Could not find AxImp.exe. Install the Windows SDK .NET Framework 4.x tools, or set $aximp in build.ps1.' }
+foreach ($root in $sdkRoots) {
+    if (-not (Test-Path -LiteralPath $root)) { continue }
+    $found = Get-ChildItem -LiteralPath $root -Recurse -Filter 'AxImp.exe' -ErrorAction SilentlyContinue |
+        Select-Object -First 1
+    if ($found) { $aximp = $found.FullName; break }
+}
+if (-not $aximp) {
+    throw 'Could not find AxImp.exe anywhere under "C:\Program Files (x86)\Microsoft SDKs\Windows" / "C:\Program Files\Microsoft SDKs\Windows". Install the Windows SDK (which includes the .NET Framework 4.x tools) and re-run this script.'
+}
+
 $interopDirectory = Join-Path ([IO.Path]::GetTempPath()) ('RayDesktopInterop-' + [Guid]::NewGuid().ToString('N'))
 $axInterop = Join-Path $interopDirectory 'AxInterop.MSTSCLib.dll'
 $interop = Join-Path $interopDirectory 'MSTSCLib.dll'
@@ -41,7 +61,7 @@ try {
     if ($LASTEXITCODE -ne 0) { throw "RDP ActiveX wrapper generation failed with exit code $LASTEXITCODE" }
 
     $childReferences = $references + @(("/r:{0}" -f $interop), ("/r:{0}" -f $axInterop))
-    & $compiler /nologo /target:winexe ("/out:{0}" -f $childTemporary) ("/win32icon:{0}" -f $icon) ("/win32manifest:{0}" -f $childManifest) @childReferences $childSource $clipboardRelaySource
+    & $compiler /nologo /target:winexe ("/out:{0}" -f $childTemporary) ("/win32icon:{0}" -f $icon) ("/win32manifest:{0}" -f $childManifest) @childReferences @childSources
     if ($LASTEXITCODE -ne 0) { throw "Child-session GUI build failed with exit code $LASTEXITCODE" }
 
     & $compiler /nologo /target:winexe ("/out:{0}" -f $setupTemporary) ("/win32manifest:{0}" -f $setupManifest) @setupReferences $setupSource
