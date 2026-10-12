@@ -109,12 +109,17 @@ The core mechanism is the **Windows 11 native Child Session feature**: the same 
 │  └─ AxInterop.MSTSCLib.dll               # RDP ActiveX WinForms wrapper assembly
 └─ src/
    ├─ ChildSessionDesktop/
-   │  ├─ Program.cs                        # Desktop host form, RDP ActiveX, connect & scaling logic
-   │  ├─ ClipboardFileRelay.cs             # Two-way file clipboard bridging over the shared file system
-   │  └─ app.manifest                      # Main program manifest: Per-Monitor V2 DPI, asInvoker
+   │  ├─ Program.cs               # Entry point, single-instance, logging, P/Invoke, --lang / --dynamic parsing
+   │  ├─ Strings.cs               # UI strings (zh/en dictionaries), system-language auto-select + --lang override
+   │  ├─ DesktopForm.cs           # Main form: RDP ActiveX host, connect, resolution & scaling logic
+   │  ├─ ChildSessionControl.cs   # RDP ActiveX AxHost wrapper
+   │  ├─ ToolbarForm.cs           # Floating toolbar (7 buttons, GDI+ self-drawn)
+   │  ├─ TooltipForm.cs           # Translucent tooltip bubble
+   │  ├─ ClipboardFileRelay.cs    # Two-way file clipboard bridging over the shared file system
+   │  └─ app.manifest             # Main program manifest: Per-Monitor V2 DPI, asInvoker
    └─ ChildSessionSetup/
-      ├─ Program.cs                        # Source of the admin helper that enables Child Sessions
-      └─ app.manifest                      # Requires administrator (requireAdministrator)
+      ├─ Program.cs               # Source of the admin helper that enables Child Sessions
+      └─ app.manifest             # Requires administrator (requireAdministrator)
 ```
 
 `src\ChildSessionDesktop` and `src\ChildSessionSetup` are source directories and must be kept for building and future development. **End users do not need the source directories at runtime**: deliver the whole `Raydesktop` folder to users (see [Release](#release)), not just the main EXE. The program writes `child-session.log` next to the EXE.
@@ -124,8 +129,7 @@ The core mechanism is the **Windows 11 native Child Session feature**: the same 
 ### Build machine
 
 - Windows with the built-in .NET Framework C# compiler `csc.exe`.
-- `AxImp.exe` from the Windows SDK .NET Framework tools. The build script looks here:
-  `C:\Program Files (x86)\Microsoft SDKs\Windows\v10.0A\bin\NETFX 4.8 Tools\AxImp.exe`
+- `AxImp.exe` from the Windows SDK .NET Framework tools. The build script locates it by recursively scanning `C:\Program Files (x86)\Microsoft SDKs\Windows` and `C:\Program Files\Microsoft SDKs\Windows`; if it is not found it stops with a clear error telling you to install the Windows SDK.
 - The Windows-built-in `mstscax.dll`; the script generates the RDP ActiveX wrapper assembly from `%WINDIR%\System32\mstscax.dll`.
 - No NuGet packages or a virtual machine needed.
 
@@ -215,7 +219,15 @@ When the host window closes, the program first calls `Disconnect()`, then resolv
 
 ## Key Implementation Locations
 
-### `src\ChildSessionDesktop\Program.cs`
+### `src\ChildSessionDesktop` (split per class)
+
+- `Program.cs`: `Main` entry (single-instance Mutex, `--lang` / `--dynamic` / `--clipboard-agent` argument parsing), `Program.Log`, and the `wtsapi32` / `kernel32` / `user32` P/Invoke declarations.
+- `DesktopForm.cs`: the main form — hosting `ChildSessionControl`, connecting to the Child Session, resolution & scaling (`ApplyDisplaySize`, `MatchWindowToSession`, `ApplyLetterbox`, `WM_SIZING`), display-mode menu, and toolbar wiring.
+- `Strings.cs`: all user-visible UI strings, zh/en dictionaries, `Strings.T(key[, args])`; language follows the system UI culture unless overridden by `--lang=zh/en`.
+- `ToolbarForm.cs` / `TooltipForm.cs`: the floating toolbar and its translucent tooltip.
+- `ClipboardFileRelay.cs`: two-way file clipboard bridge.
+
+Key routines originally in the single `Program.cs`:
 
 - `Program.Log`: appends runtime time and diagnostics to `child-session.log` next to the EXE.
 - `DesktopForm.LogRedirectionDiagnostics`: after connecting, logs RDP clipboard and disk redirection state, and that the local file path bridge has started.

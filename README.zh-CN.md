@@ -109,12 +109,17 @@ WinForms 宿主启动
 │  └─ AxInterop.MSTSCLib.dll               # RDP ActiveX WinForms 包装程序集
 └─ src/
    ├─ ChildSessionDesktop/
-   │  ├─ Program.cs                        # 桌面宿主窗体、RDP ActiveX、连接与缩放逻辑
-   │  ├─ ClipboardFileRelay.cs             # 同一文件系统下的双向文件剪贴板桥接
-   │  └─ app.manifest                      # 主程序清单：Per-Monitor V2 DPI、asInvoker
+   │  ├─ Program.cs               # 入口、单实例、日志、P/Invoke、--lang / --dynamic 参数解析
+   │  ├─ Strings.cs               # UI 文案（中/英字典），随系统语言自动选择 + --lang 覆盖
+   │  ├─ DesktopForm.cs           # 主窗体：RDP ActiveX 宿主、连接、分辨率与缩放逻辑
+   │  ├─ ChildSessionControl.cs   # RDP ActiveX AxHost 包装
+   │  ├─ ToolbarForm.cs           # 悬浮工具栏（7 按钮，GDI+ 自绘）
+   │  ├─ TooltipForm.cs           # 真透明气泡提示
+   │  ├─ ClipboardFileRelay.cs    # 同一文件系统下的双向文件剪贴板桥接
+   │  └─ app.manifest             # 主程序清单：Per-Monitor V2 DPI、asInvoker
    └─ ChildSessionSetup/
-      ├─ Program.cs                        # 启用 Child Sessions 的管理员辅助程序源码
-      └─ app.manifest                      # 要求管理员权限（requireAdministrator）
+      ├─ Program.cs               # 启用 Child Sessions 的管理员辅助程序源码
+      └─ app.manifest             # 要求管理员权限（requireAdministrator）
 ```
 
 `src\ChildSessionDesktop` 与 `src\ChildSessionSetup` 是源码目录，构建与后续开发需要保留。**一般用户运行时不需要源码目录**：应将整个 `Raydesktop` 文件夹交付给用户（见[发布](#发布)），不能只复制主 EXE。程序会在 EXE 同目录写入 `child-session.log`。
@@ -124,8 +129,7 @@ WinForms 宿主启动
 ### 构建机器
 
 - Windows，且提供系统自带的 .NET Framework C# 编译器 `csc.exe`。
-- Windows SDK .NET Framework 工具中的 `AxImp.exe`。构建脚本从以下位置查找：
-  `C:\Program Files (x86)\Microsoft SDKs\Windows\v10.0A\bin\NETFX 4.8 Tools\AxImp.exe`
+- Windows SDK .NET Framework 工具中的 `AxImp.exe`。构建脚本递归扫描 `C:\Program Files (x86)\Microsoft SDKs\Windows` 与 `C:\Program Files\Microsoft SDKs\Windows` 查找它；找不到时以清晰报错停止并提示安装 Windows SDK。
 - Windows 自带的 `mstscax.dll`，脚本从 `%WINDIR%\System32\mstscax.dll` 生成 RDP ActiveX 包装程序集。
 - 不需要 NuGet 包或虚拟机。
 
@@ -215,7 +219,15 @@ Raydesktop\AxInterop.MSTSCLib.dll
 
 ## 关键实现位置
 
-### `src\ChildSessionDesktop\Program.cs`
+### `src\ChildSessionDesktop`（按类拆分）
+
+- `Program.cs`：`Main` 入口（单实例 Mutex、`--lang` / `--dynamic` / `--clipboard-agent` 参数解析）、`Program.Log`，以及 `wtsapi32` / `kernel32` / `user32` 的 P/Invoke 声明。
+- `DesktopForm.cs`：主窗体——承载 `ChildSessionControl`、连接子会话、分辨率与缩放（`ApplyDisplaySize`、`MatchWindowToSession`、`ApplyLetterbox`、`WM_SIZING`）、显示模式菜单与工具栏接线。
+- `Strings.cs`：所有用户可见 UI 文案、中/英字典、`Strings.T(key[, args])`；默认随系统 UI 语言，除非用 `--lang=zh/en` 覆盖。
+- `ToolbarForm.cs` / `TooltipForm.cs`：悬浮工具栏与其真透明气泡提示。
+- `ClipboardFileRelay.cs`：双向文件剪贴板桥接。
+
+原本位于单文件 `Program.cs` 中的关键例程：
 
 - `Program.Log`：将运行时间与诊断信息追加到 EXE 同目录的 `child-session.log`。
 - `DesktopForm.LogRedirectionDiagnostics`：连接后记录 RDP 剪贴板与磁盘重定向状态，并记录本机文件路径桥接已启动。
