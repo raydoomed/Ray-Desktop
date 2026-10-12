@@ -1495,6 +1495,7 @@ namespace ChildSessionDesktop
         private Point dragStart;
         private bool dragMoved;
         private bool _collapsed;   // 收起态：工具栏缩成一个可拖动的小圆点（点击圆点展开）；默认启动为完整工具栏
+        private const double CollapsedOpacity = 0.35;   // 收起态平时透明度（不挡画面）；鼠标悬停到圆点上方时恢复 1 高亮
         private Form _host;
         private Point _hostOffset = new Point(int.MinValue, int.MinValue);   // 相对主窗体客户区的偏移（拖动后记住，主窗体移动/缩放时跟随不复位）
         private Rectangle[] buttonRects;
@@ -1598,6 +1599,7 @@ namespace ChildSessionDesktop
         {
             if (!_collapsed) return;
             _collapsed = false;
+            Opacity = 1f;   // 展开态不透明
             RebuildLayout();
             if (_host != null) FollowHost(_host);
             Invalidate();
@@ -1606,6 +1608,7 @@ namespace ChildSessionDesktop
         {
             if (_collapsed) return;
             _collapsed = true;
+            Opacity = CollapsedOpacity;   // 收起态平时半透明；悬停圆点时高亮（见 OnMouseEnter/Leave）
             hoverIndex = -1; selectedIndex = -1; indicatorX = -100f;
             RebuildLayout();
             if (_host != null) FollowHost(_host);
@@ -1884,6 +1887,12 @@ namespace ChildSessionDesktop
             base.OnMouseMove(e);
         }
 
+        protected override void OnMouseEnter(EventArgs e)
+        {
+            base.OnMouseEnter(e);
+            if (_collapsed) Opacity = 1f;   // 悬停收起圆点 → 高亮不透明（平时半透明不挡画面）
+        }
+
         protected override void OnMouseLeave(EventArgs e)
         {
             base.OnMouseLeave(e);
@@ -1892,6 +1901,7 @@ namespace ChildSessionDesktop
             Invalidate();
             animTimer.Start();   // 指示器滑出
             tooltip.HideAway();
+            if (_collapsed) Opacity = CollapsedOpacity;   // 移出收起圆点 → 恢复半透明
         }
 
         protected override void OnMouseUp(MouseEventArgs e)
