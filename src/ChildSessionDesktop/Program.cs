@@ -1484,8 +1484,9 @@ namespace ChildSessionDesktop
         internal Func<Rectangle, bool> ShowDisplayModeMenu;   // "显示"按钮回调：弹下拉选固定/动态分辨率模式
         internal Func<Rectangle, bool> ShowMoreMenu;          // "更多"按钮回调：弹下拉（关于/打开日志/检查更新）
         internal bool IsDynamicMode;                  // 当前显示模式：true=动态（会话分辨率随窗口）/ false=固定
-        private readonly string[] labels = { "全屏", "显示", "分辨率", "结束", "更多", "拖动" };
-        private const int DragBtnIndex = 5;   // 最右侧的专用"拖动"按钮：只有点住它才能移动工具栏
+        private readonly string[] labels = { "全屏", "显示", "分辨率", "结束", "更多", "收起", "拖动" };
+        private const int DragBtnIndex = 6;   // 最右侧的专用"拖动"按钮：只有点住它才能移动工具栏
+        private const int CollapseBtnIndex = 5;   // 拖动按钮左侧的"收起/展开"按钮：点击收起成小圆点 / 点击展开恢复（图标随状态切换）
         private int hoverIndex = -1;
         private int pressedIndex = -1;
         private int selectedIndex = -1;
@@ -1493,12 +1494,14 @@ namespace ChildSessionDesktop
         private bool dragging;
         private Point dragStart;
         private bool dragMoved;
+        private bool _collapsed;   // 收起态：工具栏缩成一个可拖动的小圆点（点击圆点展开）；默认启动为完整工具栏
         private Form _host;
         private Point _hostOffset = new Point(int.MinValue, int.MinValue);   // 相对主窗体客户区的偏移（拖动后记住，主窗体移动/缩放时跟随不复位）
         private Rectangle[] buttonRects;
         private readonly Timer animTimer;
         private readonly TooltipForm tooltip;
         private const int BtnW = 30, BtnH = 26, Gap = 6, Pad = 6;   // 逻辑像素基准（100% DPI）
+        private const int DotSize = 24;   // 收起态小圆点直径（逻辑像素基准）
         private float _scale = 1f;   // 当前 DPI 缩放系数（DpiX/96），图标/圆角/间距按它放大，保证高 DPI 下与背景条匹配
 
         // 桌面就绪前不显示气泡，避免启动早期位置错误
@@ -1538,7 +1541,10 @@ namespace ChildSessionDesktop
                 buttonRects[i] = new Rectangle(totalW, pad, bw, bh);
                 totalW += bw + gap;
             }
-            Size = new Size(totalW - gap + pad, pad + bh + pad);
+            if (_collapsed)
+                Size = new Size((int)Math.Round(DotSize * _scale), (int)Math.Round(DotSize * _scale));
+            else
+                Size = new Size(totalW - gap + pad, pad + bh + pad);
             Invalidate();
         }
 
@@ -1587,6 +1593,25 @@ namespace ChildSessionDesktop
 
         internal void ResetToTopCenter() { _hostOffset = new Point(int.MinValue, int.MinValue); }   // 退出全屏统一重置到顶部居中
 
+        // 收起态 ↔ 展开态：由最右"收起/展开"按钮手动切换（收起成可拖动小圆点，点击圆点展开）
+        private void Expand()
+        {
+            if (!_collapsed) return;
+            _collapsed = false;
+            RebuildLayout();
+            if (_host != null) FollowHost(_host);
+            Invalidate();
+        }
+        private void Collapse()
+        {
+            if (_collapsed) return;
+            _collapsed = true;
+            hoverIndex = -1; selectedIndex = -1; indicatorX = -100f;
+            RebuildLayout();
+            if (_host != null) FollowHost(_host);
+            Invalidate();
+        }
+
         internal void UpdateState(bool fs)
         {
             Fullscreen = fs;
@@ -1625,6 +1650,27 @@ namespace ChildSessionDesktop
         {
             var g = e.Graphics;
             g.SmoothingMode = SmoothingMode.AntiAlias;
+
+            // —— 收起态：单个小圆点（可拖动，点击展开）；深色底+白色描边+线条品牌字母 R ——
+            if (_collapsed)
+            {
+                using (var bg = new SolidBrush(Color.FromArgb(235, 24, 24, 28)))
+                    g.FillEllipse(bg, 0, 0, Width - 1, Height - 1);
+                using (var pen = new Pen(Color.FromArgb(230, 205, 205, 215), Math.Max(1.5f, 2f * _scale)))
+                    g.DrawEllipse(pen, 1f, 1f, Width - 3f, Height - 3f);
+                // 品牌字母 R（线条风格，与工具栏图标统一；整体右移+压低 bowl，使视觉重心居中于圆点）
+                using (var p = new Pen(Color.FromArgb(245, 245, 248), Math.Max(1.8f, 2f * _scale)))
+                {
+                    p.StartCap = LineCap.Round;
+                    p.EndCap = LineCap.Round;
+                    float cx = Width / 2f, cy = Height / 2f;
+                    float s = _scale;
+                    g.DrawLine(p, cx - 5f * s, cy - 7f * s, cx - 5f * s, cy + 7f * s);   // 左竖线
+                    g.DrawBezier(p, cx - 5f * s, cy - 7f * s, cx + 3f * s, cy - 8f * s, cx + 4f * s, cy - 3f * s, cx - 5f * s, cy + 1f * s);   // 右凸弧 bowl
+                    g.DrawLine(p, cx - 3f * s, cy + 1f * s, cx + 6f * s, cy + 7f * s);   // 斜腿
+                }
+                return;
+            }
 
             // —— 背景条：黑色圆角，底部轻影（简洁，单层）——
             int radBg = (int)Math.Round(9 * _scale);
@@ -1714,7 +1760,11 @@ namespace ChildSessionDesktop
                             g.FillEllipse(b, cx + 4, cy - 2, 4, 4);
                         }
                         break;
-                    case 5: // 拖动：暗灰方块 + 暗灰九宫格点（与其他白色图标区分）
+                    case 5: // 收起/展开：单尖角 chevron（展开态工具栏按钮=收起 <，比其它图标略小）
+                        g.DrawLine(pen, cx + 4, cy - 5, cx - 4, cy);
+                        g.DrawLine(pen, cx - 4, cy, cx + 4, cy + 5);
+                        break;
+                    case 6: // 拖动：暗灰方块 + 暗灰九宫格点（与其他白色图标区分）
                         using (var sq = new SolidBrush(Color.FromArgb(80, 80, 88)))
                         using (var dot = new SolidBrush(Color.FromArgb(150, 150, 158)))
                         {
@@ -1743,6 +1793,7 @@ namespace ChildSessionDesktop
         internal string HoverText(int idx)
         {
             if (idx == 1) return IsDynamicMode ? "显示 · 动态" : "显示 · 固定";   // 显示按钮：tooltip 显示当前模式
+            if (idx == CollapseBtnIndex) return _collapsed ? "展开" : "收起";   // 收起/展开按钮
             return labels[idx];
         }
 
@@ -1750,22 +1801,53 @@ namespace ChildSessionDesktop
         {
             if (e.Button == MouseButtons.Left)
             {
-                pressedIndex = HitTest(e.Location);
-                if (pressedIndex >= 0) Invalidate();
                 dragMoved = false;   // 每次按下都重置，避免上次拖动残留导致后续点击被跳过
-                if (pressedIndex == DragBtnIndex)
+                if (_collapsed)
                 {
+                    // 收起态：整个圆点即拖动把手，按住圆点可移动工具栏
                     dragging = true;
                     dragStart = e.Location;
-                    if (tooltip != null) tooltip.HideAway();   // 拖动时不显示文字气泡
+                    if (tooltip != null) tooltip.HideAway();
                 }
-                else dragging = false;
+                else
+                {
+                    pressedIndex = HitTest(e.Location);
+                    if (pressedIndex >= 0) Invalidate();
+                    if (pressedIndex == DragBtnIndex)
+                    {
+                        dragging = true;
+                        dragStart = e.Location;
+                        if (tooltip != null) tooltip.HideAway();   // 拖动时不显示文字气泡
+                    }
+                    else dragging = false;
+                }
             }
             base.OnMouseDown(e);
         }
 
         protected override void OnMouseMove(MouseEventArgs e)
         {
+            if (_collapsed)
+            {
+                if (dragging && (Math.Abs(e.X - dragStart.X) > 3 || Math.Abs(e.Y - dragStart.Y) > 3))
+                {
+                    dragMoved = true;
+                    int nx = Location.X + e.X - dragStart.X;
+                    int ny = Location.Y + e.Y - dragStart.Y;
+                    if (_host != null)
+                    {
+                        // 拖动限制在主窗体客户区内，不能拖出窗口
+                        Rectangle cs = _host.RectangleToScreen(_host.ClientRectangle);
+                        nx = Math.Max(cs.Left, Math.Min(nx, cs.Right - Width));
+                        ny = Math.Max(cs.Top, Math.Min(ny, cs.Bottom - Height));
+                    }
+                    Location = new Point(nx, ny);
+                    if (tooltip != null) tooltip.HideAway();
+                }
+                base.OnMouseMove(e);
+                return;
+            }
+
             int idx = -1;
             for (int i = 0; i < buttonRects.Length; i++)
                 if (buttonRects[i].Contains(e.Location)) { idx = i; break; }
@@ -1824,49 +1906,57 @@ namespace ChildSessionDesktop
                 }
                 if (!dragMoved)
                 {
-                    int hit = HitTest(e.Location);
-                    if (hit == 0 && ToggleFullscreen != null)
+                    if (_collapsed) { Expand(); }   // 点击圆点（未拖）→ 展开
+                    else
                     {
-                        bool fs = ToggleFullscreen();
-                        UpdateState(fs);
+                        int hit = HitTest(e.Location);
+                        if (hit == 0 && ToggleFullscreen != null)
+                        {
+                            bool fs = ToggleFullscreen();
+                            UpdateState(fs);
+                        }
+                        else if (hit == 2 && ShowResMenu != null)
+                        {
+                            // 分辨率按钮：由主窗体弹出下拉，指示器停在分辨率按钮上
+                            ShowResMenu(RectangleToScreen(buttonRects[2]));
+                            selectedIndex = hit;
+                            Invalidate();
+                            animTimer.Start();
+                        }
+                        else if (hit == 1 && ShowDisplayModeMenu != null)
+                        {
+                            // 显示按钮：弹下拉选固定/动态分辨率模式，指示器停在显示按钮上
+                            ShowDisplayModeMenu(RectangleToScreen(buttonRects[1]));
+                            selectedIndex = hit;
+                            Invalidate();
+                            animTimer.Start();
+                        }
+                        else if (hit == 3 && _host != null)
+                        {
+                            // 结束按钮：关闭主窗口（与窗口右上角 X 相同，触发注销子会话等正常关闭流程）
+                            _host.Close();
+                        }
+                        else if (hit == 4 && ShowMoreMenu != null)
+                        {
+                            // 更多按钮：弹下拉（关于/打开日志/检查更新），指示器停在更多按钮上
+                            ShowMoreMenu(RectangleToScreen(buttonRects[4]));
+                            selectedIndex = hit;
+                            Invalidate();
+                            animTimer.Start();
+                        }
+                        else if (hit == CollapseBtnIndex)   // 收起/展开按钮：收起成小圆点（再点圆点展开）
+                        {
+                            Collapse();
+                        }
+                        else if (hit > 0 && hit != DragBtnIndex)
+                        {
+                            selectedIndex = hit;   // 预留工具：点击锁定选中（指示器停在该位置）
+                            Invalidate();
+                            animTimer.Start();   // 指示器滑向新选中的工具
+                        }
+                        // 拖动按钮（DragBtnIndex）点击不触发命令，只作拖动把手
+                        // hit>0 的预留按钮暂无动作，仅表现选中态
                     }
-                    else if (hit == 2 && ShowResMenu != null)
-                    {
-                        // 分辨率按钮：由主窗体弹出下拉，指示器停在分辨率按钮上
-                        ShowResMenu(RectangleToScreen(buttonRects[2]));
-                        selectedIndex = hit;
-                        Invalidate();
-                        animTimer.Start();
-                    }
-                    else if (hit == 1 && ShowDisplayModeMenu != null)
-                    {
-                        // 显示按钮：弹下拉选固定/动态分辨率模式，指示器停在显示按钮上
-                        ShowDisplayModeMenu(RectangleToScreen(buttonRects[1]));
-                        selectedIndex = hit;
-                        Invalidate();
-                        animTimer.Start();
-                    }
-                    else if (hit == 3 && _host != null)
-                    {
-                        // 结束按钮：关闭主窗口（与窗口右上角 X 相同，触发注销子会话等正常关闭流程）
-                        _host.Close();
-                    }
-                    else if (hit == 4 && ShowMoreMenu != null)
-                    {
-                        // 更多按钮：弹下拉（关于/打开日志/检查更新），指示器停在更多按钮上
-                        ShowMoreMenu(RectangleToScreen(buttonRects[4]));
-                        selectedIndex = hit;
-                        Invalidate();
-                        animTimer.Start();
-                    }
-                    else if (hit > 0 && hit != DragBtnIndex)
-                    {
-                        selectedIndex = hit;   // 预留工具：点击锁定选中（指示器停在该位置）
-                        Invalidate();
-                        animTimer.Start();   // 指示器滑向新选中的工具
-                    }
-                    // 拖动按钮（DragBtnIndex）点击不触发命令，只作拖动把手
-                    // hit>0 的预留按钮暂无动作，仅表现选中态
                 }
                 if (pressedIndex >= 0) { pressedIndex = -1; Invalidate(); }
             }
@@ -1884,8 +1974,20 @@ namespace ChildSessionDesktop
         {
             base.OnResize(e);
             if (Region != null) Region.Dispose();
-            using (var p = RoundedRectPath(new Rectangle(0, 0, Width, Height), (int)Math.Round(9 * _scale)))
-                Region = new Region(p);
+            if (_collapsed)
+            {
+                // 收起态：正圆窗口（避免圆角矩形在 24px 尺寸下呈胶囊/橄榄形）
+                using (var p = new GraphicsPath())
+                {
+                    p.AddEllipse(0, 0, Width - 1, Height - 1);
+                    Region = new Region(p);
+                }
+            }
+            else
+            {
+                using (var p = RoundedRectPath(new Rectangle(0, 0, Width, Height), (int)Math.Round(9 * _scale)))
+                    Region = new Region(p);
+            }
         }
     }
 
