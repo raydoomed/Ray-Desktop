@@ -41,6 +41,7 @@ It is not a virtual machine, nor is it Windows' `Win + Tab` virtual desktops. Th
 - 🧩 **Everything shared**: same kernel and file system, software is ready to use, no separate install
 - 📋 **Clipboard interop**: text is redirected automatically; files/folders are copied both ways via a path bridge
 - 🪟 **Fixed & dynamic display modes**: fixed mode pins the session resolution and scales the window as an aspect-preserving Letterbox, so the picture never deforms and the mouse stays aligned; dynamic mode lets the session resolution follow the window in real time. Switch between them anytime from the floating toolbar's **Display** button
+- 📌 **Collapsible toolbar**: a collapse/expand button (<) tucks the whole floating toolbar into a small draggable dot that stays translucent (35%) so it never blocks your view, and brightens on hover for easy targeting — click the dot to expand back
 - ⌨️ **Shortcut forwarding**: while the Child Session has focus, `Win` key combinations are handled by the Child Session
 - 🔌 **Clean exit**: closing the window automatically logs off the Child Session
 
