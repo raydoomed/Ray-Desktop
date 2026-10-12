@@ -49,7 +49,7 @@
 ## 界面预览
 
 <p align="center">
-  <img src="assets/screenshot.jpg" width="800" alt="Ray Desktop 运行界面">
+  <img src="assets/screenshot-v1.1.0.jpg" width="800" alt="Ray Desktop 运行界面">
 </p>
 
 ## 快速开始
@@ -99,7 +99,7 @@ WinForms 宿主启动
 ├─ assets/                                 # 资源文件
 │  ├─ RayDesktop.ico                       # 程序图标
 │  ├─ RayDesktop-preview.png               # README 顶部品牌锁版
-│  └─ screenshot.jpg                       # 界面预览图
+│  └─ screenshot-v1.1.0.jpg                # 界面预览图
 ├─ build.ps1                               # Windows 本机构建脚本
 ├─ LICENSE                                 # MIT 许可
 ├─ README.md                               # 本说明文档

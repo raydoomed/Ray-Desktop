@@ -49,7 +49,7 @@ It is not a virtual machine, nor is it Windows' `Win + Tab` virtual desktops. Th
 ## UI Preview
 
 <p align="center">
-  <img src="assets/screenshot.jpg" width="800" alt="Ray Desktop running UI">
+  <img src="assets/screenshot-v1.1.0.jpg" width="800" alt="Ray Desktop running UI">
 </p>
 
 ## Quick Start
@@ -99,7 +99,7 @@ The core mechanism is the **Windows 11 native Child Session feature**: the same 
 ├─ assets/                                 # Resource files
 │  ├─ RayDesktop.ico                       # Program icon
 │  ├─ RayDesktop-preview.png               # Brand lockup at the top of the README
-│  └─ screenshot.jpg                       # UI preview image
+│  └─ screenshot-v1.1.0.jpg                # UI preview image
 ├─ build.ps1                               # Windows local build script
 ├─ LICENSE                                 # MIT license
 ├─ README.md                               # This documentation
