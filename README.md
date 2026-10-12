@@ -44,6 +44,7 @@ It is not a virtual machine, nor is it Windows' `Win + Tab` virtual desktops. Th
 - 📌 **Collapsible toolbar**: a collapse/expand button (<) tucks the whole floating toolbar into a small draggable dot that stays translucent (35%) so it never blocks your view, and brightens on hover for easy targeting — click the dot to expand back
 - ⌨️ **Shortcut forwarding**: while the Child Session has focus, `Win` key combinations are handled by the Child Session
 - 🔌 **Clean exit**: closing the window automatically logs off the Child Session
+- 🌐 **Bilingual UI (zh/en)**: the interface follows your system language automatically (Chinese → zh, anything else → en); force it anytime with `Raydesktop.exe --lang=zh` / `--lang=en`
 
 ## UI Preview
 
