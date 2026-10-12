@@ -28,11 +28,16 @@ namespace ChildSessionDesktop
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
 
-            // 多语言：--lang=zh / --lang=en 覆盖（缺省按系统语言，见 Strings.SetLanguage）
+            // 多语言：--lang=zh / --lang=en 覆盖（缺省按系统语言，见 Strings.SetLanguage）。
+            // 同时支持 "--lang=en"（等号）与 "--lang en"（空格）两种写法。
             string lang = null;
-            for (int i = 0; args != null && i + 1 < args.Length; i++)
-                if (string.Equals(args[i], "--lang", StringComparison.OrdinalIgnoreCase))
+            for (int i = 0; args != null && i < args.Length; i++)
+            {
+                if (string.Equals(args[i], "--lang", StringComparison.OrdinalIgnoreCase) && i + 1 < args.Length)
                     lang = args[i + 1];
+                else if (args[i].StartsWith("--lang=", StringComparison.OrdinalIgnoreCase))
+                    lang = args[i].Substring("--lang=".Length);
+            }
             Strings.SetLanguage(lang);
 
             try
