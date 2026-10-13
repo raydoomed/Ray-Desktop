@@ -133,6 +133,16 @@ namespace ChildSessionDesktop
                                 logInitialized = true;
                             }
 
+                            // 日志体积治理：超过 5MB 归档为 .1 并重建，避免长期高频轮询持续膨胀（P2-3 兜底）。
+                            const long MaxLogBytes = 5 * 1024 * 1024;
+                            if (File.Exists(path) && new FileInfo(path).Length > MaxLogBytes)
+                            {
+                                string archived = path + ".1";
+                                if (File.Exists(archived)) File.Delete(archived);
+                                File.Move(path, archived);
+                                logInitialized = false;
+                            }
+
                             string cleanMessage = (message ?? string.Empty).Replace("\0", string.Empty);
                             File.AppendAllText(path, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff") + " " +
                                 cleanMessage + Environment.NewLine, new UTF8Encoding(false));

@@ -1072,6 +1072,7 @@ namespace ChildSessionDesktop
             {
                 Program.Log("Could not read connection state: " + ex.GetBaseException().Message);
                 SetStatus(Strings.T("status_read_fail") + ex.GetBaseException().Message);
+                statusTimer.Stop();   // 状态读不到，继续 750ms 轮询无意义；由 TryAutoReconnect 接管恢复
             }
         }
 
