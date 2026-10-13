@@ -684,7 +684,7 @@ namespace ChildSessionDesktop
                         " screen=" + sw + "x" + sh + " follow=" + _followScreenRes);
             var itemScreen = new ToolStripMenuItem(Strings.T("res_your_screen", sw, sh));
             itemScreen.Click += delegate { ApplyResolutionPick(0, 0); };
-            itemScreen.Checked = (currentSessW == sw && currentSessH == sh);
+            itemScreen.Checked = (currentSessW == (sw & ~1) && currentSessH == sh);   // 应用时宽度偶数化，打勾按偶数化后比较一致（P2-8）
             menu.Items.Add(itemScreen);
             // 常见宽屏分辨率，按像素从大到小排序
             int[,] presets = {
