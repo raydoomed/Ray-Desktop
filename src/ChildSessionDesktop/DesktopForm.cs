@@ -573,7 +573,7 @@ namespace ChildSessionDesktop
             if (dynamicMode) { SetDynamicLayout(); QueueDisplayResize(); }   // 动态全屏：会话分辨率跟随窗口（进入=整屏，退出=还原窗口）
             else ApplyLetterbox();                 // 固定模式全屏：画面等比居中，四周黑边
             if (toolBar != null) toolBar.UpdateState(fullscreen);
-            Program.Log("全屏 " + (fullscreen ? "进" : "出") + " Bounds=" + Bounds + " client=" + ClientSize.Width + "x" + ClientSize.Height
+            Program.Log("Fullscreen " + (fullscreen ? "enter" : "exit") + " Bounds=" + Bounds + " client=" + ClientSize.Width + "x" + ClientSize.Height
                 + " aspect=" + aspect.ToString("0.0000") + " sess=" + currentSessW + "x" + currentSessH);
             return fullscreen;
         }
@@ -1244,7 +1244,8 @@ namespace ChildSessionDesktop
                     return;
                 }
                 Program.Log("Auto-reconnect attempt " + reconnectAttempts);
-                try { ((IMsTscAx)rdp.GetOcxObject()).Disconnect(); } catch { }
+                try { ((IMsTscAx)rdp.GetOcxObject()).Disconnect(); }
+                catch (Exception ex) { Program.Log("Auto-reconnect pre-disconnect failed: " + ex.GetBaseException().Message); }
                 ConnectChildSession();
             }
             catch (Exception ex)
@@ -1361,7 +1362,8 @@ namespace ChildSessionDesktop
             if (e.CloseReason == CloseReason.UserClosing)
             {
                 bool connected = false;
-                try { connected = ((IMsRdpClient9)rdp.GetOcxObject()).Connected == 1; } catch { }
+                try { connected = ((IMsRdpClient9)rdp.GetOcxObject()).Connected == 1; }
+                catch (Exception ex) { Program.Log("Could not read RDP state for close confirm: " + ex.GetBaseException().Message); }
                 if (connected)
                 {
                     var r = MessageBox.Show(this, Strings.T("close_confirm_body"),
