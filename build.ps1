@@ -31,20 +31,30 @@ $icon = Join-Path $PSScriptRoot 'assets\RayDesktop.ico'
 $childTarget = Join-Path $output 'Raydesktop.exe'
 $childTemporary = Join-Path $output 'Raydesktop.build.exe'
 
-# ---- AxImp.exe 探测：递归扫 Windows SDK 目录（不写死本机路径），找不到给清晰报错 ----
+# ---- AxImp.exe detection: probe Windows SDK dirs (no hardcoded local path); clear error if missing ----
 $aximp = $null
 $sdkRoots = @(
+    'C:\Program Files (x86)\Windows Kits\10\bin',
     'C:\Program Files (x86)\Microsoft SDKs\Windows',
     'C:\Program Files\Microsoft SDKs\Windows'
 )
 foreach ($root in $sdkRoots) {
-    if (-not (Test-Path -LiteralPath $root)) { continue }
-    $found = Get-ChildItem -LiteralPath $root -Recurse -Filter 'AxImp.exe' -ErrorAction SilentlyContinue |
-        Select-Object -First 1
-    if ($found) { $aximp = $found.FullName; break }
+    if (-not [IO.Directory]::Exists($root)) { continue }
+    $candidates = $null
+    try {
+        $candidates = @([IO.Directory]::GetFiles($root, 'AxImp.exe', [IO.SearchOption]::AllDirectories))
+    }
+    catch {
+        continue
+    }
+    if ($candidates.Length -gt 0) {
+        $candidates = @($candidates | Sort-Object -Descending)
+        $aximp = $candidates[0]   # pick highest-version hit, avoid old version / wrong arch
+        break
+    }
 }
 if (-not $aximp) {
-    throw 'Could not find AxImp.exe anywhere under "C:\Program Files (x86)\Microsoft SDKs\Windows" / "C:\Program Files\Microsoft SDKs\Windows". Install the Windows SDK (which includes the .NET Framework 4.x tools) and re-run this script.'
+    throw 'Could not find AxImp.exe under the Windows SDK directories. Install the Windows SDK (which includes the .NET Framework 4.x tools) and re-run this script.'
 }
 
 $interopDirectory = Join-Path ([IO.Path]::GetTempPath()) ('RayDesktopInterop-' + [Guid]::NewGuid().ToString('N'))
