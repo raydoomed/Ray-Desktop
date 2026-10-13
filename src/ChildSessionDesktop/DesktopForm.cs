@@ -921,7 +921,7 @@ namespace ChildSessionDesktop
                 client.AdvancedSettings9.EnableWindowsKey = 1;
                 client.AdvancedSettings9.AcceleratorPassthrough = 1;
                 client.SecuredSettings3.KeyboardHookMode = 1;
-                Program.Log("RDP clipboard redirection off (the Ray Desktop bridge relays text and files); drive redirection and Windows key combinations enabled");
+                Program.Log("RDP clipboard redirection disabled; Ray Desktop bridges clipboard text and files between the two sessions instead; all local drives are redirected read-write; Windows key combinations enabled");
                 ((IMsTscAx)ocx).Connect();
                 Program.Log("Connect() returned");
                 statusTimer.Start();
@@ -1112,7 +1112,7 @@ namespace ChildSessionDesktop
                 var settings = client.AdvancedSettings9;
                 Program.Log("RDP redirection settings after connect: RedirectClipboard=" + settings.RedirectClipboard +
                     ", RedirectDrives=" + settings.RedirectDrives + ", DisableRdpdr=" + settings.DisableRdpdr);
-                Program.Log("Clipboard bridge active; it mirrors text and local file paths between the two sessions (RDP clipboard redirection is off)");
+                Program.Log("Clipboard bridge active: it relays text and local file paths between the two sessions (functionally clipboard redirection is ON via the bridge); all local drives are redirected read-write");
             }
             catch (Exception ex)
             {

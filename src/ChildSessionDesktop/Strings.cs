@@ -34,7 +34,7 @@ namespace ChildSessionDesktop
             { "menu_about", "关于 Ray Desktop" },
             { "menu_open_log", "打开日志文件夹" },
             { "menu_check_update", "检查更新…" },
-            { "about_body", "在现有 Windows 中开启一个独立子会话虚拟桌面，不影响主桌面。\n开源：github.com/raydoomed/Ray-Desktop\n作者：raydoomed" },
+            { "about_body", "在现有 Windows 中开启一个独立子会话虚拟桌面，不影响主桌面。\n注意：子会话与主桌面共享全部本地磁盘（可完整读写）；剪贴板（含文件路径）经 Ray Desktop 桥接在两会话间中继。\n开源：github.com/raydoomed/Ray-Desktop\n作者：raydoomed" },
             // 分辨率
             { "res_your_screen", "{0} × {1}（你的屏幕，推荐）" },
             { "res_confirm_title", "改分辨率" },
@@ -81,7 +81,7 @@ namespace ChildSessionDesktop
             { "menu_about", "About Ray Desktop" },
             { "menu_open_log", "Open log folder" },
             { "menu_check_update", "Check for updates…" },
-            { "about_body", "Opens a separate Child Session virtual desktop on top of the current Windows session, without affecting the main desktop.\nOpen source: github.com/raydoomed/Ray-Desktop\nAuthor: raydoomed" },
+            { "about_body", "Opens a separate Child Session virtual desktop on top of the current Windows session, without affecting the main desktop.\nNote: the child session shares all local disks with the main desktop (read-write); the clipboard (including file paths) is relayed between the two sessions by the Ray Desktop bridge.\nOpen source: github.com/raydoomed/Ray-Desktop\nAuthor: raydoomed" },
             { "res_your_screen", "{0} × {1} (your screen, recommended)" },
             { "res_confirm_title", "Change resolution" },
             { "res_confirm_body", "Change the virtual desktop to {0} × {1} now?\n\n• Programs already open in the virtual desktop are kept, not closed\n• But any running fullscreen game may exit" },

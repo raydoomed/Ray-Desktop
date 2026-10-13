@@ -253,7 +253,7 @@ Raydesktop\AxInterop.MSTSCLib.dll
 
 ## 日志与故障排查
 
-日志位置：`Raydesktop.exe 同目录\child-session.log`（UTF-8 BOM，便于记事本显示中文）。日志可能含连接时间、状态变化、系统错误码与异常文本；提交给开发者前可先遮盖用户名、计算机名等个人信息。
+日志位置：`%LOCALAPPDATA%\RayDesktop\Logs\child-session.log`（UTF-8 BOM，便于记事本显示中文；若该目录不可写则回退到 exe 同目录）。日志可能含连接时间、状态变化、系统错误码与异常文本；提交给开发者前可先遮盖用户名、计算机名等个人信息。
 
 首次使用时，宿主程序会尝试写入当前用户的 Run 启动项；Child Session 登录时 Windows 再尝试启动隐藏代理。需要在宿主与 Child Session 两侧各做一次文件/文件夹复制粘贴验证。若日志出现 “Registered the automatic child-session file clipboard bridge” 但没有 “Child-session file clipboard agent started”，只能说明日志中没有代理启动记录；还需检查 Run 项命令、代理进程所在会话及系统策略/安全软件，不能仅凭缺少该日志判断启动项被拦截。
 
@@ -274,8 +274,11 @@ Raydesktop\AxInterop.MSTSCLib.dll
 ## 安全与隐私
 
 - 子会话与主会话属于**同一 Windows 用户环境，不是安全边界**。两边共享用户数据、软件安装、内核及可访问资源。
-- 管理员辅助程序需要 UAC 授权才能启用 Child Sessions。
-- 程序不会要求或保存 Windows 密码；日志只写在程序目录。
+- **全部本地磁盘都以读写方式重定向给子会话**（每个盘），无路径白名单或只读选项。子会话内运行的任何进程都可读写主机全部磁盘——不要在虚拟桌面内运行不可信软件。
+- 剪贴板（含文件路径）经 **Ray Desktop 自建桥**在两会话间中继，功能上等效于开启剪贴板重定向，即使原生 RDP 剪贴板重定向已关闭。
+- 管理员辅助程序需要 UAC 授权才能启用 Child Sessions。由于辅助程序未签名、且会从程序目录被提权启动，请勿从任何用户都可写目录（如下载文件夹）运行本程序，以免辅助程序被替换。
+- 程序不会要求或保存 Windows 密码；日志写在 `%LOCALAPPDATA%\RayDesktop\Logs`（不可写时回退 exe 同目录）。
+- **卸载/清理**：剪贴板代理会在 `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` 写入自启项 `RayDesktopClipboardAgent`。如需停止自启，删除该值——`reg delete "HKCU\Software\Microsoft\Windows\CurrentVersion\Run" /v RayDesktopClipboardAgent /f`——并结束正在运行的 `Raydesktop.exe --clipboard-agent` 进程。
 - 若在多人共用或受管理的电脑上部署，应先确认管理员策略允许启用该功能，并由设备所有者处理授权。
 
 ## 已知限制

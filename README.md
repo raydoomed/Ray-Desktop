@@ -123,7 +123,7 @@ The core mechanism is the **Windows 11 native Child Session feature**: the same 
       └─ app.manifest             # Requires administrator (requireAdministrator)
 ```
 
-`src\ChildSessionDesktop` and `src\ChildSessionSetup` are source directories and must be kept for building and future development. **End users do not need the source directories at runtime**: deliver the whole `Raydesktop` folder to users (see [Release](#release)), not just the main EXE. The program writes `child-session.log` next to the EXE.
+`src\ChildSessionDesktop` and `src\ChildSessionSetup` are source directories and must be kept for building and future development. **End users do not need the source directories at runtime**: deliver the whole `Raydesktop` folder to users (see [Release](#release)), not just the main EXE. The program writes `child-session.log` under `%LOCALAPPDATA%\RayDesktop\Logs\` (falling back next to the EXE if that is not writable).
 
 ## Environment Requirements
 
@@ -230,7 +230,7 @@ When the host window closes, the program first calls `Disconnect()`, then resolv
 
 Key routines originally in the single `Program.cs`:
 
-- `Program.Log`: appends runtime time and diagnostics to `child-session.log` next to the EXE.
+- `Program.Log`: appends runtime time and diagnostics to `child-session.log` under `%LOCALAPPDATA%\RayDesktop\Logs\`.
 - `DesktopForm.LogRedirectionDiagnostics`: after connecting, logs RDP clipboard and disk redirection state, and that the local file path bridge has started.
 - `Program.WTSIsChildSessionsEnabled`: imports the state-check API from `wtsapi32.dll`.
 - `Program.WTSGetChildSessionId` / `WTSLogoffSession`: locate and log off the Child Session when the host window closes.
@@ -253,7 +253,7 @@ Calls `WTSEnableChildSessions(true)` to enable the feature and verifies it with 
 
 ## Logs & Troubleshooting
 
-Log location: `Raydesktop.exe 同目录\child-session.log` (UTF-8 BOM, so Notepad shows Chinese well). The log may contain connection times, state changes, system error codes, and exception text; redact personal info such as user names and computer names before sending to a developer.
+Log location: `%LOCALAPPDATA%\RayDesktop\Logs\child-session.log` (UTF-8 BOM, so Notepad shows Chinese well; falls back next to the EXE if that is not writable). The log may contain connection times, state changes, system error codes, and exception text; redact personal info such as user names and computer names before sending to a developer.
 
 On first use the host program tries to write a Run entry for the current user; at Child Session logon Windows then tries to start the hidden agent. Validate file/folder copy-paste on both the host and Child Session sides. If the log shows “Registered the automatic child-session file clipboard bridge” but not “Child-session file clipboard agent started”, that only means there is no agent-start record in the log; also check the Run entry command, the agent process session, and system policy/security software — a missing log line alone does not prove the startup entry was blocked.
 
@@ -274,8 +274,11 @@ For disconnect codes, Microsoft recommends using the RDP control's `GetErrorDesc
 ## Security & Privacy
 
 - The Child Session and main session belong to the **same Windows user environment and are not a security boundary**. Both share user data, software installs, the kernel, and accessible resources.
-- The admin helper needs UAC approval to enable Child Sessions.
-- The program never asks for or stores a Windows password; logs are written only in the program directory.
+- **All local disks are redirected to the Child Session read-write** (every drive) with no path whitelist or read-only option. Any process run inside the Child Session can read and write the host's full disks — do not run untrusted software inside the virtual desktop.
+- The clipboard (text and file paths) is **relayed between the two sessions by the Ray Desktop bridge**, which is functionally equivalent to clipboard redirection being enabled, even though native RDP clipboard redirection is off.
+- The admin helper needs UAC approval to enable Child Sessions. Because the helper is unsigned and is launched elevated from the program's directory, avoid running the program from a world-writable directory (e.g. Downloads) where the helper could be replaced.
+- The program never asks for or stores a Windows password; logs are written under `%LOCALAPPDATA%\RayDesktop\Logs` (falling back to the executable directory if that is not writable).
+- **Uninstalling / cleanup**: the clipboard agent registers itself to start at logon under `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` as `RayDesktopClipboardAgent`. To stop auto-start, delete that value — `reg delete "HKCU\Software\Microsoft\Windows\CurrentVersion\Run" /v RayDesktopClipboardAgent /f` — and terminate any running `Raydesktop.exe --clipboard-agent` process.
 - If deployed on a multi-user or managed machine, first confirm admin policy allows enabling the feature and let the device owner handle authorization.
 
 ## Known Limitations
