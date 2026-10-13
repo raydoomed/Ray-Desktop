@@ -963,6 +963,23 @@ namespace ChildSessionDesktop
                 return;
             }
 
+            // P1-9②: 签名缺失时的兜底——拒绝版本与主程序不一致的辅助程序，防可写目录中被替换的二进制提权
+            try
+            {
+                string appVer = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version.ToString();
+                string helperVer = System.Diagnostics.FileVersionInfo.GetVersionInfo(helperPath).FileVersion;
+                if (!string.Equals(helperVer, appVer, StringComparison.Ordinal))
+                {
+                    Program.Log("Refusing to launch setup helper: version mismatch (helper=" + helperVer + " app=" + appVer + ")");
+                    SetStatus(Strings.T("status_launch_helper_fail") + " (版本不匹配 / version mismatch)");
+                    return;
+                }
+            }
+            catch (Exception ex)
+            {
+                Program.Log("Could not verify setup helper version before elevation: " + ex.GetBaseException().Message);
+            }
+
             try
             {
                 var startInfo = new ProcessStartInfo

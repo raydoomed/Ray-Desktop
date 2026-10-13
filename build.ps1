@@ -38,6 +38,11 @@ $childAssemblyInfo = Join-Path ([IO.Path]::GetTempPath()) ('RayDesktopAssemblyIn
     "using System.Reflection;`r`n[assembly: AssemblyTitle(`"Ray Desktop`")]`r`n[assembly: AssemblyVersion(`"$version`")]`r`n[assembly: AssemblyFileVersion(`"$version`")]`r`n",
     [Text.Encoding]::UTF8)
 $childSources = @($childSources) + @($childAssemblyInfo)
+# setup binary gets the same injected version (P1-9-2 version check as unsigned-helper fallback)
+$setupAssemblyInfo = Join-Path ([IO.Path]::GetTempPath()) ('RayDesktopSetupAssemblyInfo-' + [Guid]::NewGuid().ToString('N') + '.cs')
+[IO.File]::WriteAllText($setupAssemblyInfo,
+    "using System.Reflection;`r`n[assembly: AssemblyTitle(`"Ray Desktop Setup`")]`r`n[assembly: AssemblyVersion(`"$version`")]`r`n[assembly: AssemblyFileVersion(`"$version`")]`r`n",
+    [Text.Encoding]::UTF8)
 
 # ---- AxImp.exe detection: probe Windows SDK dirs (no hardcoded local path); clear error if missing ----
 $aximp = $null
@@ -84,7 +89,7 @@ try {
     & $compiler /nologo /target:winexe /optimize+ /platform:anycpu /debug- ("/out:{0}" -f $childTemporary) ("/win32icon:{0}" -f $icon) ("/win32manifest:{0}" -f $childManifest) @childReferences @childSources
     if ($LASTEXITCODE -ne 0) { throw "Child-session GUI build failed with exit code $LASTEXITCODE" }
 
-    & $compiler /nologo /target:winexe /optimize+ /platform:anycpu /debug- ("/out:{0}" -f $setupTemporary) ("/win32manifest:{0}" -f $setupManifest) @setupReferences $setupSource
+    & $compiler /nologo /target:winexe /optimize+ /platform:anycpu /debug- ("/out:{0}" -f $setupTemporary) ("/win32manifest:{0}" -f $setupManifest) @setupReferences $setupSource $setupAssemblyInfo
     if ($LASTEXITCODE -ne 0) { throw "Child-session setup helper build failed with exit code $LASTEXITCODE" }
 
     Publish-BuildOutput $childTemporary $childTarget
@@ -94,7 +99,7 @@ try {
     Write-Host 'Built Raydesktop.exe, EnableChildSessions.exe, and the two RDP interop dependencies.'
 }
 finally {
-    foreach ($temporary in @($childTemporary, $setupTemporary, $childAssemblyInfo)) {
+    foreach ($temporary in @($childTemporary, $setupTemporary, $childAssemblyInfo, $setupAssemblyInfo)) {
         if (Test-Path -LiteralPath $temporary) { Remove-Item -LiteralPath $temporary -Force }
     }
     if (Test-Path -LiteralPath $interopDirectory) {
