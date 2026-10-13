@@ -54,8 +54,6 @@ namespace ChildSessionDesktop
         private const int WM_EXITSIZEMOVE = 0x0232;
         private const int WM_HOTKEY = 0x0312;
         private const int SW_SHOWNORMAL = 1;
-        private const int WMSZ_LEFT = 1, WMSZ_RIGHT = 2, WMSZ_TOP = 3, WMSZ_TOPLEFT = 4,
-            WMSZ_TOPRIGHT = 5, WMSZ_BOTTOM = 6, WMSZ_BOTTOMLEFT = 7, WMSZ_BOTTOMRIGHT = 8;
         private const uint VK_F11 = 0x7A;
         private const uint SWP_NOZORDER = 0x0004;
         private const uint SWP_NOACTIVATE = 0x0010;
@@ -280,31 +278,15 @@ namespace ChildSessionDesktop
                 RECT r = (RECT)Marshal.PtrToStructure(m.LParam, typeof(RECT));
                 int bw = Width - ClientSize.Width;                 // 边框总宽
                 int bh = Height - ClientSize.Height;               // 标题栏+边框总高
-                int cw = (r.Right - r.Left) - bw;
-                int ch = (r.Bottom - r.Top) - bh;
-                if (cw > 160 && ch > 120)
+                Rect result;
+                // 锚定当前窗口的实际四边，只移动被拖的边（纯函数见 Geometry.LockAspectRect），
+                // 防止 Aero Snap 在缩放时把窗口吸附到屏幕顶部/边缘（传入 top=0）。
+                if (Geometry.LockAspectRect(
+                    new Rect { Left = r.Left, Top = r.Top, Right = r.Right, Bottom = r.Bottom },
+                    new Rect { Left = Left, Top = Top, Right = Right, Bottom = Bottom },
+                    bw, bh, aspect, m.WParam.ToInt32(), out result))
                 {
-                    int ncw, nch;
-                    if ((double)cw / ch > aspect) { ncw = (int)(ch * aspect + 0.5); nch = ch; }
-                    else                          { ncw = cw; nch = (int)(cw / aspect + 0.5); }
-
-                    int W = bw + ncw;
-                    int H = bh + nch;
-                    // 锚定当前窗口的实际四边，只移动被拖的边，
-                    // 防止 Aero Snap 在缩放时把窗口吸附到屏幕顶部/边缘（传入 top=0）
-                    int L = this.Left, T = this.Top, R = this.Right, B = this.Bottom;
-                    switch (m.WParam.ToInt32())
-                    {
-                        case WMSZ_LEFT:        r.Left = R - W; r.Right = R; r.Top = T; r.Bottom = T + H; break;
-                        case WMSZ_RIGHT:       r.Right = L + W; r.Left = L; r.Top = T; r.Bottom = T + H; break;
-                        case WMSZ_TOP:         r.Top = B - H; r.Bottom = B; r.Left = L; r.Right = L + W; break;
-                        case WMSZ_BOTTOM:      r.Bottom = T + H; r.Top = T; r.Left = L; r.Right = L + W; break;
-                        case WMSZ_TOPLEFT:     r.Left = R - W; r.Right = R; r.Top = B - H; r.Bottom = B; break;
-                        case WMSZ_TOPRIGHT:    r.Right = L + W; r.Left = L; r.Top = B - H; r.Bottom = B; break;
-                        case WMSZ_BOTTOMLEFT:  r.Left = R - W; r.Right = R; r.Bottom = T + H; r.Top = T; break;
-                        case WMSZ_BOTTOMRIGHT: r.Right = L + W; r.Left = L; r.Bottom = T + H; r.Top = T; break;
-                        default:               r.Right = L + W; r.Left = L; r.Bottom = T + H; r.Top = T; break;
-                    }
+                    r.Left = result.Left; r.Top = result.Top; r.Right = result.Right; r.Bottom = result.Bottom;
                     Marshal.StructureToPtr(r, m.LParam, false);
                     m.Result = (IntPtr)1;
                     return;
@@ -343,22 +325,13 @@ namespace ChildSessionDesktop
             int cw = ClientSize.Width;
             int ch = ClientSize.Height;
             if (cw <= 0 || ch <= 0) return;
-            int dw, dh;
-            if (currentSessW > 0 && currentSessH > 0)
-            {
-                // ActiveX 永不放大（只 1:1，放不下才等比缩小）→ 消除 mstsc 放大灰底。
-                // 客户区比画面大时（拉大窗口/低分辨率），画面以原始分辨率等比居中，四周露纯黑窗口底；
-                // 客户区比画面小时，等比缩小铺满（ActiveX 缩小，无灰）。窗口模式与全屏共用这套逻辑。
-                double s = Math.Min((double)cw / currentSessW, (double)ch / currentSessH);
-                if (s > 1.0) s = 1.0;
-                dw = (int)(currentSessW * s + 0.5);
-                dh = (int)(currentSessH * s + 0.5);
-            }
-            else
-            {
-                dw = cw; dh = ch;
-            }
-            rdp.Location = new Point((cw - dw) / 2, (ch - dh) / 2);
+            int dw, dh, dx, dy;
+            // ActiveX 永不放大（只 1:1，放不下才等比缩小）→ 消除 mstsc 放大灰底（纯函数见 Geometry.ComputeLetterbox）。
+            Geometry.ComputeLetterbox(cw, ch,
+                currentSessW > 0 ? currentSessW : 0,
+                currentSessH > 0 ? currentSessH : 0,
+                out dw, out dh, out dx, out dy);
+            rdp.Location = new Point(dx, dy);
             rdp.Size = new Size(dw, dh);
             if (cw != _lbLastW || ch != _lbLastH || Math.Abs(aspect - _lbLastA) > 0.0001)
             {
@@ -485,8 +458,8 @@ namespace ChildSessionDesktop
                     {
                         float dpi = 96f;
                         try { using (var gr = rdp.CreateGraphics()) dpi = gr.DpiX; } catch { }
-                        uint pw = ToMillimeters(fw, dpi);
-                        uint ph = ToMillimeters(fh, dpi);
+                        uint pw = Geometry.ToMillimeters(fw, dpi);
+                        uint ph = Geometry.ToMillimeters(fh, dpi);
                         client.UpdateSessionDisplaySettings((uint)fw, (uint)fh, pw, ph, 0, 100, 100);
                         _resChangePending = true;   // 改分辨率期间屏蔽 750ms readback 的旧值干扰
                         Program.Log("Display mode fixed: session set to " + fw + "x" + fh);
@@ -763,8 +736,8 @@ namespace ChildSessionDesktop
                 }
                 float dpi = 96f;
                 try { using (var gr = rdp.CreateGraphics()) dpi = gr.DpiX; } catch { }
-                uint pw = ToMillimeters(w, dpi);
-                uint ph = ToMillimeters(h, dpi);
+                uint pw = Geometry.ToMillimeters(w, dpi);
+                uint ph = Geometry.ToMillimeters(h, dpi);
                 client.UpdateSessionDisplaySettings((uint)w, (uint)h, pw, ph, 0, 100, 100);
                 Program.Log("Resolution menu: session set to " + w + "x" + h);
                 _resChangePending = true;   // 改分辨率期间屏蔽 UpdateConnectionStatus 的旧值 readback 干扰
@@ -1330,8 +1303,8 @@ namespace ChildSessionDesktop
                     dpiX = graphics.DpiX;
                     dpiY = graphics.DpiY;
                 }
-                uint physicalWidth = ToMillimeters(width, dpiX);
-                uint physicalHeight = ToMillimeters(height, dpiY);
+                uint physicalWidth = Geometry.ToMillimeters(width, dpiX);
+                uint physicalHeight = Geometry.ToMillimeters(height, dpiY);
 
                 client.UpdateSessionDisplaySettings((uint)width, (uint)height,
                     physicalWidth, physicalHeight, 0, 100, 100);
@@ -1363,12 +1336,6 @@ namespace ChildSessionDesktop
                 Program.Log("Dynamic display resize failed for " + requested.Width + "x" + requested.Height +
                     "; retrying in " + retryDelay + " ms: " + ex.GetBaseException().Message);
             }
-        }
-
-        private static uint ToMillimeters(int pixels, float dpi)
-        {
-            if (dpi <= 0) dpi = 96;
-            return (uint)Math.Max(10, Math.Round(pixels * 25.4 / dpi));
         }
 
         private void OnClosing(object sender, FormClosingEventArgs e)

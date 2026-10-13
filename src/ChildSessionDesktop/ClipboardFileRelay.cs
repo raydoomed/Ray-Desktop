@@ -14,7 +14,6 @@ namespace ChildSessionDesktop
     internal sealed class ClipboardFileRelay : IDisposable
     {
         internal const int WmClipboardUpdate = 0x031D;
-        private const int ClipboardMessageMagic = 0x31465344;
         private const string RunValueName = "RayDesktopClipboardAgent";
         private readonly bool isChild;
         private readonly string incomingPath;
@@ -254,7 +253,7 @@ namespace ChildSessionDesktop
                 using (var stream = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None))
                 using (var writer = new BinaryWriter(stream, Encoding.UTF8))
                 {
-                    writer.Write(ClipboardMessageMagic);
+                    writer.Write(ClipboardProtocol.Magic);
                     writer.Write(2); // mailbox format version
                     writer.Write(messageId.ToByteArray());
                     writer.Write(text ?? string.Empty);
@@ -277,23 +276,10 @@ namespace ChildSessionDesktop
 
         private static bool ReadMessage(string path, out Guid messageId, out string[] paths, out string text)
         {
-            messageId = Guid.Empty;
-            paths = new string[0];
-            text = null;
             using (var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
             using (var reader = new BinaryReader(stream, Encoding.UTF8))
             {
-                if (reader.ReadInt32() != ClipboardMessageMagic) return false;
-                if (reader.ReadInt32() != 2) return false;
-                byte[] idBytes = reader.ReadBytes(16);
-                if (idBytes.Length != 16) return false;
-                messageId = new Guid(idBytes);
-                text = reader.ReadString();
-                int count = reader.ReadInt32();
-                if (count < 0 || count > 4096) return false;
-                paths = new string[count];
-                for (int i = 0; i < count; i++) paths[i] = reader.ReadString();
-                return true;
+                return ClipboardProtocol.Parse(reader, out messageId, out paths, out text);
             }
         }
 

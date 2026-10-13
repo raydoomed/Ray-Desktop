@@ -20,6 +20,8 @@ $childSources = @(
     (Join-Path $PSScriptRoot 'src\ChildSessionDesktop\Strings.cs'),
     (Join-Path $PSScriptRoot 'src\ChildSessionDesktop\ClipboardFileRelay.cs'),
     (Join-Path $PSScriptRoot 'src\ChildSessionDesktop\DesktopForm.cs'),
+    (Join-Path $PSScriptRoot 'src\ChildSessionDesktop\Geometry.cs'),
+    (Join-Path $PSScriptRoot 'src\ChildSessionDesktop\ClipboardProtocol.cs'),
     (Join-Path $PSScriptRoot 'src\ChildSessionDesktop\ChildSessionControl.cs'),
     (Join-Path $PSScriptRoot 'src\ChildSessionDesktop\ToolbarForm.cs'),
     (Join-Path $PSScriptRoot 'src\ChildSessionDesktop\TooltipForm.cs')
