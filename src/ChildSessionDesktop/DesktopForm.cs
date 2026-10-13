@@ -1326,8 +1326,8 @@ namespace ChildSessionDesktop
             }
             catch (Exception ex)
             {
-                var requested = new Size(Math.Max(200, Math.Min(8192, rdp.ClientSize.Width)) & ~1,
-                    Math.Max(200, Math.Min(8192, rdp.ClientSize.Height)));
+                var requested = new Size(Math.Max(200, Math.Min(8192, ClientSize.Width)) & ~1,
+                    Math.Max(200, Math.Min(8192, ClientSize.Height)));
                 if (requested != lastFailedDisplaySize)
                 {
                     lastFailedDisplaySize = requested;
