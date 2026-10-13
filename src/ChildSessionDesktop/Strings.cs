@@ -39,6 +39,8 @@ namespace ChildSessionDesktop
             { "res_your_screen", "{0} × {1}（你的屏幕，推荐）" },
             { "res_confirm_title", "改分辨率" },
             { "res_confirm_body", "立即把虚拟桌面改成 {0} × {1} 吗？\n\n• 虚拟桌面里已打开的程序会保留，不会关闭\n• 但正在运行的全屏游戏可能会退出" },
+            { "close_confirm_title", "关闭虚拟桌面" },
+            { "close_confirm_body", "虚拟桌面仍已连接，正在运行的程序可能还有未保存的内容。确定关闭吗？" },
             { "res_not_connected", "尚未连接，无法改分辨率。" },
             { "res_fail", "改分辨率失败：" },
             // 连接状态（SetStatus 标题栏文案）
@@ -82,6 +84,8 @@ namespace ChildSessionDesktop
             { "res_your_screen", "{0} × {1} (your screen, recommended)" },
             { "res_confirm_title", "Change resolution" },
             { "res_confirm_body", "Change the virtual desktop to {0} × {1} now?\n\n• Programs already open in the virtual desktop are kept, not closed\n• But any running fullscreen game may exit" },
+            { "close_confirm_title", "Close virtual desktop" },
+            { "close_confirm_body", "The virtual desktop is still connected and running programs may have unsaved work. Close anyway?" },
             { "res_not_connected", "Not connected yet; cannot change resolution." },
             { "res_fail", "Failed to change resolution: " },
             { "status_connected", "Connected" },

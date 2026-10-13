@@ -173,6 +173,7 @@ namespace ChildSessionDesktop
             if (disposed || !File.Exists(incomingPath)) return;
             try
             {
+                DateTime writeStamp = File.GetLastWriteTimeUtc(incomingPath);
                 Guid messageId;
                 string[] paths;
                 string text;
@@ -180,6 +181,7 @@ namespace ChildSessionDesktop
                 if (paths.Length == 0 && string.IsNullOrEmpty(text))
                 {
                     lastIncomingId = messageId;
+                    DeleteIncomingFile(writeStamp);
                     return;
                 }
 
@@ -190,6 +192,7 @@ namespace ChildSessionDesktop
                 if (fingerprint == lastSentFingerprint)
                 {
                     lastIncomingId = messageId;
+                    DeleteIncomingFile(writeStamp);
                     return;
                 }
                 if (paths.Length > 0)
@@ -205,6 +208,7 @@ namespace ChildSessionDesktop
                 lastAppliedFingerprint = fingerprint;
                 lastAppliedAt = DateTime.UtcNow;
                 suppressSequence = GetClipboardSequenceNumber();
+                DeleteIncomingFile(writeStamp);
                 Program.Log("Clipboard received " + (paths.Length > 0 ? paths.Length + " file path(s) " : "text ") + (isChild ? "in child session" : "in host session"));
             }
             catch (IOException)
@@ -290,6 +294,22 @@ namespace ChildSessionDesktop
                 paths = new string[count];
                 for (int i = 0; i < count; i++) paths[i] = reader.ReadString();
                 return true;
+            }
+        }
+
+        // 消费成功后删除信箱文件，防止进程重启后重放上一次会话的陈旧内容。
+        // 删除前校验写时间戳：若读消息期间写入方已原子替换成新消息，则跳过删除，留给下轮 poll 读取。
+        private void DeleteIncomingFile(DateTime writeStamp)
+        {
+            try
+            {
+                if (!File.Exists(incomingPath)) return;
+                if (File.GetLastWriteTimeUtc(incomingPath) != writeStamp) return;
+                File.Delete(incomingPath);
+            }
+            catch (Exception ex)
+            {
+                Program.Log("Could not delete consumed clipboard mailbox: " + ex.GetBaseException().Message);
             }
         }
 

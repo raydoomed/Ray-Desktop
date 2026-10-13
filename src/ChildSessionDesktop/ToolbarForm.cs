@@ -254,7 +254,8 @@ namespace ChildSessionDesktop
 
             // —— 背景条描边 ——
             using (var pen = new Pen(Color.FromArgb(120, 60, 60, 68)))
-                g.DrawPath(pen, RoundedRectPath(barRect, radBg));
+            using (var p = RoundedRectPath(barRect, radBg))
+                g.DrawPath(pen, p);
         }
 
         private void DrawIcon(Graphics g, int index, int cx, int cy)
@@ -306,7 +307,8 @@ namespace ChildSessionDesktop
                         using (var sq = new SolidBrush(Color.FromArgb(80, 80, 88)))
                         using (var dot = new SolidBrush(Color.FromArgb(150, 150, 158)))
                         {
-                            g.FillPath(sq, RoundedRectPath(new Rectangle(cx - 6, cy - 6, 12, 12), 3));
+                            using (var p = RoundedRectPath(new Rectangle(cx - 6, cy - 6, 12, 12), 3))
+                                g.FillPath(sq, p);
                             for (int row = -1; row <= 1; row++)
                                 for (int col = -1; col <= 1; col++)
                                     g.FillEllipse(dot, cx + col * 4 - 1.5f, cy + row * 4 - 1.5f, 3, 3);

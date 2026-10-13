@@ -72,6 +72,25 @@ namespace ChildSessionDesktop
             }
         }
 
+        /// <summary>日志目录：优先 %LOCALAPPDATA%\RayDesktop\Logs（用户始终可写），失败时回退 exe 同目录。</summary>
+        internal static string LogDirectory
+        {
+            get
+            {
+                try
+                {
+                    string dir = Path.Combine(Environment.GetFolderPath(
+                        Environment.SpecialFolder.LocalApplicationData), "RayDesktop", "Logs");
+                    Directory.CreateDirectory(dir);
+                    return dir;
+                }
+                catch
+                {
+                    return AppDomain.CurrentDomain.BaseDirectory;
+                }
+            }
+        }
+
         internal static void Log(string message)
         {
             try
@@ -94,7 +113,7 @@ namespace ChildSessionDesktop
                                 ownsMutex = true;
                             }
 
-                            string path = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "child-session.log");
+                            string path = Path.Combine(LogDirectory, "child-session.log");
                             if (!logInitialized)
                             {
                                 string existing = string.Empty;

@@ -47,6 +47,7 @@ namespace ChildSessionDesktop
         private Size _fixedMatchClient = Size.Empty;   // 固定模式下最近窗口匹配会话的目标逻辑客户区；切动态时据此判断窗口是否被用户拉伸
         private FormBorderStyle prevBorder;
         private ToolbarForm toolBar;                 // 独立悬浮工具栏（可拖动，含全屏/退出全屏）
+        private ContextMenuStrip _displayMenu, _moreMenu, _resMenu;   // 三个下拉菜单复用单实例，避免每次点击泄漏
         private const int WM_SIZING = 0x0214;
         private const int WM_EXITSIZEMOVE = 0x0232;
         private const int WM_HOTKEY = 0x0312;
@@ -178,7 +179,7 @@ namespace ChildSessionDesktop
                 if (max)
                 {
                     _maxSessW = currentSessW; _maxSessH = currentSessH;   // 记住最大化前的分辨率
-                    if (dynamicMode) QueueDisplayResize();   // 最大化 = 用户主动放大 → 会话分辨率跟随最大化窗口
+                    if (dynamicMode) QueueDisplayResize(true);   // 最大化 = 用户主动放大 → 会话分辨率跟随最大化窗口，并重置退避
                 }
                 else if (wasMax && _maxSessW > 0)
                 {
@@ -262,7 +263,7 @@ namespace ChildSessionDesktop
             if (m.Msg == WM_EXITSIZEMOVE)
             {
                 SyncRestoreRect();
-                if (dynamicMode) QueueDisplayResize();
+                if (dynamicMode) QueueDisplayResize(true);
             }
 
             // 拖拽边框缩放时锁定宽高比 == 会话宽高比，拖出来就是无黑边的正确比例。
@@ -370,7 +371,7 @@ namespace ChildSessionDesktop
         // "显示"按钮下拉：选固定分辨率 / 动态分辨率，当前模式打勾（对两种模式分辨率按钮都可用）。
         private bool ShowDisplayModeMenuAt(Rectangle anchor)
         {
-            var menu = MakeToolbarMenu();
+            var menu = MenuInstance(ref _displayMenu);
             menu.ShowImageMargin = false;
             menu.ShowCheckMargin = true;   // 显示勾选列，标记当前生效的模式
             var itemFixed = new ToolStripMenuItem(Strings.T("menu_fixed"));
@@ -392,7 +393,7 @@ namespace ChildSessionDesktop
         // "更多"按钮下拉：关于 / 打开日志 / 检查更新（复用预留的 AboutBox、OpenLogFolder）
         private bool ShowMoreMenuAt(Rectangle anchor)
         {
-            var menu = MakeToolbarMenu();
+            var menu = MenuInstance(ref _moreMenu);
             menu.ShowImageMargin = false;
             menu.ShowCheckMargin = false;
             var itemAbout = new ToolStripMenuItem(Strings.T("menu_about"));
@@ -528,7 +529,7 @@ namespace ChildSessionDesktop
         {
             try
             {
-                string dir = Path.GetDirectoryName(Application.ExecutablePath);
+                string dir = Program.LogDirectory;
                 string log = Path.Combine(dir, "child-session.log");
                 if (File.Exists(log)) Process.Start("explorer.exe", "/select,\"" + log + "\"");
                 else Process.Start("explorer.exe", dir);
@@ -571,7 +572,8 @@ namespace ChildSessionDesktop
 
         private void SetStatus(string message)
         {
-            Text = message + " — Ray Desktop";
+            string t = message + " — Ray Desktop";
+            if (Text != t) Text = t;   // 已连接状态定时器每 750ms 调用，值未变时跳过赋值，避免无收益的标题重绘 churn
         }
 
         // 桌面完全显示、分辨率就位后创建悬浮工具栏
@@ -596,6 +598,16 @@ namespace ChildSessionDesktop
             menu.Renderer = new ToolbarMenuRenderer();
             menu.ShowImageMargin = false;
             return menu;
+        }
+
+        // 下拉菜单复用单实例：null 或已释放才重建，每次 Show 前清空内容。
+        // 不可在 Closed 中 Dispose——该事件在点击项 OnItemClicked→SetVisibleCore 流程期间触发，
+        // 过早释放会让后续访问句柄抛 ObjectDisposedException（实测）。复用可同时规避泄漏与过早释放。
+        private ContextMenuStrip MenuInstance(ref ContextMenuStrip field)
+        {
+            if (field == null || field.IsDisposed) field = MakeToolbarMenu();
+            field.Items.Clear();
+            return field;
         }
 
         private sealed class ToolbarMenuRenderer : ToolStripProfessionalRenderer
@@ -671,7 +683,7 @@ namespace ChildSessionDesktop
         // 这是独立的"会话分辨率"设置，对固定/动态两种模式都生效。
         private bool ShowResMenuAt(Rectangle anchor)
         {
-            var menu = MakeToolbarMenu();
+            var menu = MenuInstance(ref _resMenu);
             menu.ShowImageMargin = false;
             menu.ShowCheckMargin = true;   // 显示勾选列，标记当前生效的分辨率
             int sw = Screen.FromControl(this).Bounds.Width;   // "你的屏幕"= 窗口当前所在屏幕（多显示器跟随）
@@ -710,8 +722,7 @@ namespace ChildSessionDesktop
             int sw = Screen.FromControl(this).Bounds.Width;   // "你的屏幕"= 窗口当前所在屏幕（多显示器跟随）
             int sh = Screen.FromControl(this).Bounds.Height;
             int w = pickW, h = pickH;
-            if (w == 0) { w = sw; h = sh; _followScreenRes = true; }   // "你的屏幕"：跨屏继续跟随
-            else _followScreenRes = false;                             // 手动选特定分辨率：跨屏保持此值，不再自动改
+            if (w == 0) { w = sw; h = sh; }   // "你的屏幕"：跨屏继续跟随
             if (w <= 0 || h <= 0) return;
             w &= ~1;   // RDP 要求偶数像素宽（与连接时一致），避免奇数宽导致 UpdateSessionDisplaySettings 失败
 
@@ -720,6 +731,8 @@ namespace ChildSessionDesktop
                 Strings.T("res_confirm_title"), MessageBoxButtons.OKCancel, MessageBoxIcon.Question);
             if (result != DialogResult.OK) return;
 
+            // 确认成功后才提交跟随状态：点"取消"不得改写跨屏行为（用 pickW 判定，w 已被偶数化改写）。
+            _followScreenRes = (pickW == 0);
             ApplySessionResolution(w, h, true);
         }
 
@@ -1263,6 +1276,9 @@ namespace ChildSessionDesktop
                 resizeRetryCount++;
                 int retryDelay = Math.Min(4000, 500 * (1 << Math.Min(resizeRetryCount - 1, 3)));
                 nextResizeAttempt = DateTime.Now.AddMilliseconds(retryDelay);
+                // Tick 开头会 Stop，这里必须重新 Start，否则退避重试是死代码——日志声称"retrying in N ms"但实际永不重试。
+                displayResizeTimer.Interval = retryDelay;
+                displayResizeTimer.Start();
                 Program.Log("Dynamic display resize failed for " + requested.Width + "x" + requested.Height +
                     "; retrying in " + retryDelay + " ms: " + ex.GetBaseException().Message);
             }
@@ -1276,11 +1292,27 @@ namespace ChildSessionDesktop
 
         private void OnClosing(object sender, FormClosingEventArgs e)
         {
+            // 用户点关闭且子会话已连接时先确认——避免静默注销丢未保存工作。
+            // 任务管理器结束进程 / Windows 关机注销走 CloseReason 分支跳过确认。
+            if (e.CloseReason == CloseReason.UserClosing)
+            {
+                bool connected = false;
+                try { connected = ((IMsRdpClient9)rdp.GetOcxObject()).Connected == 1; } catch { }
+                if (connected)
+                {
+                    var r = MessageBox.Show(this, Strings.T("close_confirm_body"),
+                        Strings.T("close_confirm_title"), MessageBoxButtons.OKCancel, MessageBoxIcon.Warning);
+                    if (r != DialogResult.OK) { e.Cancel = true; return; }
+                }
+            }
             closing = true;
             _resChangePending = false;   // 兜底复位：改分辨率后的 900ms 校正若在窗口关闭前未触发，防止标志永久卡 true
             if (toolBar != null) { toolBar.Close(); toolBar.Dispose(); toolBar = null; }
             statusTimer.Stop();
             displayResizeTimer.Stop();
+            if (_displayMenu != null) { _displayMenu.Dispose(); _displayMenu = null; }
+            if (_moreMenu != null) { _moreMenu.Dispose(); _moreMenu = null; }
+            if (_resMenu != null) { _resMenu.Dispose(); _resMenu = null; }
             clipboardRelayTimer.Stop();
             clipboardRelay.Dispose();
             ClipboardFileRelay.ClearMailbox();
