@@ -404,6 +404,8 @@ namespace ChildSessionDesktop
             var menu = MenuInstance(ref _moreMenu);
             menu.ShowImageMargin = false;
             menu.ShowCheckMargin = false;
+            var itemReconnect = new ToolStripMenuItem(Strings.T("menu_reconnect"));
+            itemReconnect.Click += delegate { Reconnect(); };
             var itemAbout = new ToolStripMenuItem(Strings.T("menu_about"));
             itemAbout.Click += delegate { AboutBox(); };
             var itemLog = new ToolStripMenuItem(Strings.T("menu_open_log"));
@@ -414,6 +416,7 @@ namespace ChildSessionDesktop
                 try { Process.Start("https://github.com/raydoomed/Ray-Desktop/releases"); }
                 catch { }
             };
+            menu.Items.Add(itemReconnect);
             menu.Items.Add(itemAbout);
             menu.Items.Add(itemLog);
             menu.Items.Add(new ToolStripSeparator());
@@ -1217,6 +1220,16 @@ namespace ChildSessionDesktop
                 reconnectTimer.Start();
                 Program.Log("Entering auto-reconnect state");
             }
+        }
+
+        // 手动重连入口（"更多"菜单）：复位自动重连状态后立即重新连接（ConnectChildSession 自身幂等）。
+        private void Reconnect()
+        {
+            if (closing || rdp == null || rdp.IsDisposed || connecting) return;
+            StopReconnect();
+            reconnectAttempts = 0;
+            Program.Log("Manual reconnect requested");
+            ConnectChildSession();
         }
 
         private void StopReconnect()
