@@ -170,7 +170,8 @@ namespace ChildSessionDesktop
         protected override void OnHandleDestroyed(EventArgs e)
         {
             if (IsHandleCreated && clipboardRelay != null) ClipboardFileRelay.RemoveClipboardFormatListener(Handle);
-            if (!dynamicMode) UnregisterHotKey(Handle, 1);
+            if (!dynamicMode && !UnregisterHotKey(Handle, 1))
+                Program.Log("Could not unregister the F11 fullscreen hotkey; Windows error " + Marshal.GetLastWin32Error());
             base.OnHandleDestroyed(e);
         }
 
