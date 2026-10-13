@@ -457,57 +457,135 @@ namespace ChildSessionDesktop
                     else
                     {
                         int hit = HitTest(e.Location);
-                        if (hit == 0 && ToggleFullscreen != null)
-                        {
-                            bool fs = ToggleFullscreen();
-                            UpdateState(fs);
-                        }
-                        else if (hit == 2 && ShowResMenu != null)
-                        {
-                            // 分辨率按钮：由主窗体弹出下拉，指示器停在分辨率按钮上
-                            ShowResMenu(RectangleToScreen(buttonRects[2]));
-                            selectedIndex = hit;
-                            Invalidate();
-                            animTimer.Start();
-                        }
-                        else if (hit == 1 && ShowDisplayModeMenu != null)
-                        {
-                            // 显示按钮：弹下拉选固定/动态分辨率模式，指示器停在显示按钮上
-                            ShowDisplayModeMenu(RectangleToScreen(buttonRects[1]));
-                            selectedIndex = hit;
-                            Invalidate();
-                            animTimer.Start();
-                        }
-                        else if (hit == 3 && _host != null)
-                        {
-                            // 结束按钮：关闭主窗口（与窗口右上角 X 相同，触发注销子会话等正常关闭流程）
-                            _host.Close();
-                        }
-                        else if (hit == 4 && ShowMoreMenu != null)
-                        {
-                            // 更多按钮：弹下拉（关于/打开日志/检查更新），指示器停在更多按钮上
-                            ShowMoreMenu(RectangleToScreen(buttonRects[4]));
-                            selectedIndex = hit;
-                            Invalidate();
-                            animTimer.Start();
-                        }
-                        else if (hit == CollapseBtnIndex)   // 收起/展开按钮：收起成小圆点（再点圆点展开）
-                        {
-                            Collapse();
-                        }
-                        else if (hit > 0 && hit != DragBtnIndex)
-                        {
-                            selectedIndex = hit;   // 预留工具：点击锁定选中（指示器停在该位置）
-                            Invalidate();
-                            animTimer.Start();   // 指示器滑向新选中的工具
-                        }
-                        // 拖动按钮（DragBtnIndex）点击不触发命令，只作拖动把手
-                        // hit>0 的预留按钮暂无动作，仅表现选中态
+                        if (hit >= 0) ActivateButton(hit);
                     }
                 }
                 if (pressedIndex >= 0) { pressedIndex = -1; Invalidate(); }
             }
             base.OnMouseUp(e);
+        }
+
+        // 鼠标点击与键盘 Enter/Space 共用：触发指定按钮的命令（P2-12 无障碍键盘导航复用）
+        private void ActivateButton(int idx)
+        {
+            if (idx == 0 && ToggleFullscreen != null)
+            {
+                bool fs = ToggleFullscreen();
+                UpdateState(fs);
+            }
+            else if (idx == 2 && ShowResMenu != null)
+            {
+                // 分辨率按钮：由主窗体弹出下拉，指示器停在分辨率按钮上
+                ShowResMenu(RectangleToScreen(buttonRects[2]));
+                selectedIndex = idx;
+                Invalidate();
+                animTimer.Start();
+            }
+            else if (idx == 1 && ShowDisplayModeMenu != null)
+            {
+                // 显示按钮：弹下拉选固定/动态分辨率模式，指示器停在显示按钮上
+                ShowDisplayModeMenu(RectangleToScreen(buttonRects[1]));
+                selectedIndex = idx;
+                Invalidate();
+                animTimer.Start();
+            }
+            else if (idx == 3 && _host != null)
+            {
+                // 结束按钮：关闭主窗口（与窗口右上角 X 相同，触发注销子会话等正常关闭流程）
+                _host.Close();
+            }
+            else if (idx == 4 && ShowMoreMenu != null)
+            {
+                // 更多按钮：弹下拉（关于/打开日志/检查更新），指示器停在更多按钮上
+                ShowMoreMenu(RectangleToScreen(buttonRects[4]));
+                selectedIndex = idx;
+                Invalidate();
+                animTimer.Start();
+            }
+            else if (idx == CollapseBtnIndex)   // 收起/展开按钮：收起成小圆点（再点圆点展开）
+            {
+                Collapse();
+            }
+            else if (idx > 0 && idx != DragBtnIndex)
+            {
+                selectedIndex = idx;   // 预留按钮：点击锁定选中（指示器停在该位置）
+                Invalidate();
+                animTimer.Start();   // 指示器滑向新选中的工具
+            }
+            // 拖动按钮（DragBtnIndex）点击不触发命令，只作拖动把手
+        }
+
+        // —— 无障碍（P2-12）：读屏可识别每个按钮（Name 复用 HoverText，Role=PushButton），方向键在按钮间移动焦点，Enter/Space 触发 ——
+        protected override AccessibleObject CreateAccessibilityInstance()
+        {
+            return new ToolbarAccessibleObject(this);
+        }
+
+        private sealed class ToolbarAccessibleObject : ControlAccessibleObject
+        {
+            public ToolbarAccessibleObject(ToolbarForm owner) : base(owner) { }
+            public override AccessibleRole Role { get { return AccessibleRole.Grouping; } }
+            public override string Name { get { return "Ray Desktop toolbar"; } }
+            public override int GetChildCount() { return ((ToolbarForm)Owner)._collapsed ? 0 : ((ToolbarForm)Owner).buttonRects.Length; }
+            public override AccessibleObject GetChild(int index)
+            {
+                return new ToolbarButtonAccessibleObject((ToolbarForm)Owner, index);
+            }
+        }
+
+        private sealed class ToolbarButtonAccessibleObject : AccessibleObject
+        {
+            private readonly ToolbarForm _owner;
+            private readonly int _index;
+            public ToolbarButtonAccessibleObject(ToolbarForm owner, int index) { _owner = owner; _index = index; }
+            public override string Name { get { return _owner.HoverText(_index); } }
+            public override AccessibleRole Role { get { return AccessibleRole.PushButton; } }
+            public override Rectangle Bounds { get { return _owner.RectangleToScreen(_owner.buttonRects[_index]); } }
+        }
+
+        protected override bool IsInputKey(Keys keyData)
+        {
+            if (_collapsed) return base.IsInputKey(keyData);
+            switch (keyData)
+            {
+                case Keys.Left:
+                case Keys.Right:
+                case Keys.Up:
+                case Keys.Down:
+                case Keys.Enter:
+                case Keys.Space:
+                    return true;
+            }
+            return base.IsInputKey(keyData);
+        }
+
+        protected override void OnKeyDown(KeyEventArgs e)
+        {
+            base.OnKeyDown(e);
+            if (_collapsed) return;
+            if (e.KeyCode == Keys.Left || e.KeyCode == Keys.Up)
+            {
+                selectedIndex = selectedIndex <= 0 ? buttonRects.Length - 1 : selectedIndex - 1;
+                hoverIndex = selectedIndex;
+                Invalidate();
+                animTimer.Start();
+                if (Ready && selectedIndex >= 0) tooltip.ShowFor(RectangleToScreen(buttonRects[selectedIndex]), HoverText(selectedIndex));
+                e.Handled = true;
+            }
+            else if (e.KeyCode == Keys.Right || e.KeyCode == Keys.Down)
+            {
+                selectedIndex = (selectedIndex + 1) % buttonRects.Length;
+                hoverIndex = selectedIndex;
+                Invalidate();
+                animTimer.Start();
+                if (Ready && selectedIndex >= 0) tooltip.ShowFor(RectangleToScreen(buttonRects[selectedIndex]), HoverText(selectedIndex));
+                e.Handled = true;
+            }
+            else if (e.KeyCode == Keys.Enter || e.KeyCode == Keys.Space)
+            {
+                if (selectedIndex >= 0) ActivateButton(selectedIndex);
+                e.Handled = true;
+            }
         }
 
         private int HitTest(Point p)
