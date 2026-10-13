@@ -900,13 +900,16 @@ namespace ChildSessionDesktop
                 Program.Log("Server set");
                 if (!dynamicMode)
                 {
-                    int sw = Screen.PrimaryScreen.Bounds.Width;
-                    int sh = Screen.PrimaryScreen.Bounds.Height;
+                    // 用当前会话分辨率（首次=主屏；用户选过或重连后=用户所选），避免断线重连把会话拉回主屏（P2-6）
+                    int sw = (currentSessW > 0 && currentSessH > 0) ? currentSessW : Screen.PrimaryScreen.Bounds.Width;
+                    int sh = (currentSessW > 0 && currentSessH > 0) ? currentSessH : Screen.PrimaryScreen.Bounds.Height;
                     if (sw <= 0 || sh <= 0) { sw = 1280; sh = 720; }
-                    client.DesktopWidth = sw & ~1;    // RDP 要求偶数像素宽
-                    client.DesktopHeight = sh & ~1;
-                    aspect = (double)(sw & ~1) / (double)(sh & ~1);
-                    Program.Log("Requesting child-session desktop at " + (sw & ~1) + "x" + (sh & ~1) + " from the start (fixed)");
+                    sw &= ~1; sh &= ~1;   // RDP 要求偶数像素宽
+                    client.DesktopWidth = sw;
+                    client.DesktopHeight = sh;
+                    currentSessW = sw; currentSessH = sh;   // 同步，避免 aspect 与 currentSessW/H 双源背离（P2-11）
+                    aspect = (double)sw / (double)sh;
+                    Program.Log("Requesting child-session desktop at " + sw + "x" + sh + " from the start (fixed)");
                 }
                 var extended = (IMsRdpExtendedSettings)ocx;
                 Program.Log("QI IMsRdpExtendedSettings succeeded");
