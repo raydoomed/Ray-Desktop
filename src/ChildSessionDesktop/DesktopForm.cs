@@ -886,7 +886,8 @@ namespace ChildSessionDesktop
                     int sw = (currentSessW > 0 && currentSessH > 0) ? currentSessW : Screen.PrimaryScreen.Bounds.Width;
                     int sh = (currentSessW > 0 && currentSessH > 0) ? currentSessH : Screen.PrimaryScreen.Bounds.Height;
                     if (sw <= 0 || sh <= 0) { sw = 1280; sh = 720; }
-                    sw &= ~1; sh &= ~1;   // RDP 要求偶数像素宽
+                    sw &= ~1;   // RDP 要求偶数像素宽（协议约束）
+                    sh &= ~1;   // 高度非协议要求，此处为偶数对齐（避免奇数高度时比例键与菜单打勾不一致）
                     client.DesktopWidth = sw;
                     client.DesktopHeight = sh;
                     SetSessionResolution(sw, sh);
