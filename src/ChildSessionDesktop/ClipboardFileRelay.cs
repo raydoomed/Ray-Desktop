@@ -20,6 +20,7 @@ namespace ChildSessionDesktop
         private readonly string outgoingPath;
         private Guid lastIncomingId;
         private uint suppressSequence;
+        private DateTime suppressSetAt;   // P3-11：抑制仅限设置后的 500ms 窗口，防序列号回绕复用误判回声
         private string lastSentFingerprint;
         private string lastAppliedFingerprint;
         private DateTime lastSentAt;
@@ -109,7 +110,8 @@ namespace ChildSessionDesktop
             try
             {
                 uint sequence = GetClipboardSequenceNumber();
-                if (suppressSequence != 0 && sequence == suppressSequence)
+                if (suppressSequence != 0 && sequence == suppressSequence &&
+                    (DateTime.UtcNow - suppressSetAt).TotalMilliseconds <= 500)
                 {
                     suppressSequence = 0;
                     return;
@@ -207,6 +209,7 @@ namespace ChildSessionDesktop
                 lastAppliedFingerprint = fingerprint;
                 lastAppliedAt = DateTime.UtcNow;
                 suppressSequence = GetClipboardSequenceNumber();
+                suppressSetAt = DateTime.UtcNow;
                 DeleteIncomingFile(writeStamp);
                 Program.Log("Clipboard received " + (paths.Length > 0 ? paths.Length + " file path(s) " : "text ") + (isChild ? "in child session" : "in host session"));
             }
