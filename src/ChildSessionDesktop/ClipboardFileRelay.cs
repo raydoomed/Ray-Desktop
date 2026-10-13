@@ -100,7 +100,28 @@ namespace ChildSessionDesktop
             uint consoleSessionId = Program.WTSGetActiveConsoleSessionId();
             // The startup entry also runs in the normal desktop. It must stay inert there.
             if (processSessionId == consoleSessionId || processSessionId == parentSessionId) return false;
+            // P1-8b: only run the agent while the parent session is still live. Otherwise a logged-off
+            // parent would leave agents competing across every RDP session with no one owning the bridge.
+            if (!IsSessionLive(parentSessionId)) return false;
             return true;
+        }
+
+        // P1-8b: a session counts as live if WTS connect state is Active(0) or Connected(1).
+        private static bool IsSessionLive(uint sessionId)
+        {
+            IntPtr buffer = IntPtr.Zero;
+            uint bytes = 0;
+            try
+            {
+                if (!Program.WTSQuerySessionInformation(IntPtr.Zero, sessionId, 6, out buffer, out bytes)) return false;
+                if (buffer == IntPtr.Zero || bytes < 4) return false;
+                int state = System.Runtime.InteropServices.Marshal.ReadInt32(buffer);
+                return state == 0 || state == 1;
+            }
+            finally
+            {
+                if (buffer != IntPtr.Zero) Program.WTSFreeMemory(buffer);
+            }
         }
 
         internal void OnClipboardChanged()

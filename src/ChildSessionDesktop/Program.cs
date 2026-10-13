@@ -171,6 +171,14 @@ namespace ChildSessionDesktop
         internal static extern bool WTSLogoffSession(IntPtr server, uint sessionId,
             [MarshalAs(UnmanagedType.Bool)] bool wait);
 
+        [DllImport("wtsapi32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        internal static extern bool WTSQuerySessionInformation(IntPtr hServer, uint sessionId, int infoClass,
+            out IntPtr ppBuffer, out uint pBytesReturned);
+
+        [DllImport("wtsapi32.dll")]
+        internal static extern void WTSFreeMemory(IntPtr pMemory);
+
         [DllImport("kernel32.dll")]
         internal static extern uint WTSGetActiveConsoleSessionId();
 
