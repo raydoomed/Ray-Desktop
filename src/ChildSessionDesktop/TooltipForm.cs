@@ -16,6 +16,8 @@ namespace ChildSessionDesktop
         private bool fadingOut;
         private readonly Timer anim;
         private readonly Font font;
+        private Bitmap cachedBmp;   // Redraw 复用位图，尺寸不变时避免每帧重建（P3-6）
+        private int cachedW, cachedH;
 
         [StructLayout(LayoutKind.Sequential)]
         private struct POINT { public int X; public int Y; public POINT(int x, int y) { X = x; Y = y; } }
@@ -63,7 +65,7 @@ namespace ChildSessionDesktop
                     else Redraw();
                 }
             };
-            Disposed += delegate { anim.Dispose(); font.Dispose(); };
+            Disposed += delegate { anim.Dispose(); font.Dispose(); if (cachedBmp != null) cachedBmp.Dispose(); };
         }
 
         protected override CreateParams CreateParams
@@ -79,14 +81,11 @@ namespace ChildSessionDesktop
         internal void ShowFor(Rectangle anchor, string txt)
         {
             text = txt;
-            var sz = TextRenderer.MeasureText(text, font);
-            int w = sz.Width + 8, h = sz.Height + 6;
-            int x = anchor.Left + (anchor.Width - w) / 2;
-            int y = anchor.Top - h - 6;
-            if (y < 0) y = anchor.Bottom + 6;   // 顶部不够则放下方
+            int w, h;
+            Point p = ComputeLayout(anchor, out w, out h);
             if (!Visible) { alpha = 0.01f; Visible = true; }   // 先创建句柄，避免定位被窗口管理器重置
             Size = new Size(w, h);
-            Location = new Point(x, y);
+            Location = p;
             fadingOut = false;
             fadingIn = true;
             if (!anim.Enabled) anim.Start();
@@ -105,14 +104,25 @@ namespace ChildSessionDesktop
         // 工具栏移动/缩放时重定位，保持气泡贴在图标上（不重置淡入状态）
         internal void Reposition(Rectangle anchor)
         {
-            var sz = TextRenderer.MeasureText(text, font);
-            int w = sz.Width + 8, h = sz.Height + 6;
-            int x = anchor.Left + (anchor.Width - w) / 2;
-            int y = anchor.Top - h - 6;
-            if (y < 0) y = anchor.Bottom + 6;
-            Location = new Point(x, y);
+            int w, h;
+            Point p = ComputeLayout(anchor, out w, out h);
+            Location = p;
             Size = new Size(w, h);
             Redraw();
+        }
+
+        // 计算气泡位置（ShowFor/Reposition 共用），四方向都夹回屏幕工作区内（P3-6）
+        private Point ComputeLayout(Rectangle anchor, out int w, out int h)
+        {
+            var sz = TextRenderer.MeasureText(text, font);
+            w = sz.Width + 8; h = sz.Height + 6;
+            int x = anchor.Left + (anchor.Width - w) / 2;
+            int y = anchor.Top - h - 6;
+            if (y < 0) y = anchor.Bottom + 6;   // 顶部不够则放下方
+            var wa = Screen.FromControl(this).WorkingArea;   // 底部/右侧越界也夹回，避免贴屏幕右下时气泡出屏
+            x = Math.Max(wa.Left + 2, Math.Min(x, wa.Right - w - 2));
+            y = Math.Max(wa.Top + 2, Math.Min(y, wa.Bottom - h - 2));
+            return new Point(x, y);
         }
 
         // 用带 alpha 的位图绘制纯白文字，经 UpdateLayeredWindow 输出为真透明浮层
@@ -120,40 +130,44 @@ namespace ChildSessionDesktop
         {
             if (!Visible) return;
             int w = Math.Max(1, Width), h = Math.Max(1, Height);
-            using (var bmp = new Bitmap(w, h, System.Drawing.Imaging.PixelFormat.Format32bppPArgb))
+            // 尺寸不变时复用位图，避免 12ms 帧率下每帧重建 GDI 对象（P3-6）
+            if (cachedBmp == null || cachedW != w || cachedH != h)
             {
-                using (var g = Graphics.FromImage(bmp))
-                {
-                    g.Clear(Color.Transparent);
-                    g.SmoothingMode = SmoothingMode.AntiAlias;
-                    g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.AntiAlias;
-                    int a = (int)(246 * alpha);
-                    using (var b = new SolidBrush(Color.FromArgb(a, 255, 255, 255)))
-                    using (var sf = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center })
-                        g.DrawString(text, font, b, new RectangleF(0, 0, w, h), sf);
-                }
+                if (cachedBmp != null) cachedBmp.Dispose();
+                cachedBmp = new Bitmap(w, h, System.Drawing.Imaging.PixelFormat.Format32bppPArgb);
+                cachedW = w; cachedH = h;
+            }
+            using (var g = Graphics.FromImage(cachedBmp))
+            {
+                g.Clear(Color.Transparent);
+                g.SmoothingMode = SmoothingMode.AntiAlias;
+                g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.AntiAlias;
+                int a = (int)(246 * alpha);
+                using (var b = new SolidBrush(Color.FromArgb(a, 255, 255, 255)))
+                using (var sf = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center })
+                    g.DrawString(text, font, b, new RectangleF(0, 0, w, h), sf);
+            }
 
-                IntPtr screenDc = GetDC(IntPtr.Zero);
-                IntPtr memDc = CreateCompatibleDC(screenDc);
-                IntPtr hbmp = IntPtr.Zero;
-                IntPtr old = IntPtr.Zero;
-                try
-                {
-                    hbmp = bmp.GetHbitmap(Color.FromArgb(0));
-                    old = SelectObject(memDc, hbmp);
-                    var size = new SIZE(w, h);
-                    var dst = new POINT(Location.X, Location.Y);
-                    var src = new POINT(0, 0);
-                    var blend = new BLENDFUNCTION { BlendOp = 0, BlendFlags = 0, SourceConstantAlpha = 255, AlphaFormat = 1 };
-                    UpdateLayeredWindow(Handle, screenDc, ref dst, ref size, memDc, ref src, 0, ref blend, 2);
-                }
-                finally
-                {
-                    if (old != IntPtr.Zero) SelectObject(memDc, old);
-                    if (hbmp != IntPtr.Zero) DeleteObject(hbmp);
-                    if (memDc != IntPtr.Zero) DeleteDC(memDc);
-                    if (screenDc != IntPtr.Zero) ReleaseDC(IntPtr.Zero, screenDc);
-                }
+            IntPtr screenDc = GetDC(IntPtr.Zero);
+            IntPtr memDc = CreateCompatibleDC(screenDc);
+            IntPtr hbmp = IntPtr.Zero;
+            IntPtr old = IntPtr.Zero;
+            try
+            {
+                hbmp = cachedBmp.GetHbitmap(Color.FromArgb(0));
+                old = SelectObject(memDc, hbmp);
+                var size = new SIZE(w, h);
+                var dst = new POINT(Location.X, Location.Y);
+                var src = new POINT(0, 0);
+                var blend = new BLENDFUNCTION { BlendOp = 0, BlendFlags = 0, SourceConstantAlpha = 255, AlphaFormat = 1 };
+                UpdateLayeredWindow(Handle, screenDc, ref dst, ref size, memDc, ref src, 0, ref blend, 2);
+            }
+            finally
+            {
+                if (old != IntPtr.Zero) SelectObject(memDc, old);
+                if (hbmp != IntPtr.Zero) DeleteObject(hbmp);
+                if (memDc != IntPtr.Zero) DeleteDC(memDc);
+                if (screenDc != IntPtr.Zero) ReleaseDC(IntPtr.Zero, screenDc);
             }
         }
     }
