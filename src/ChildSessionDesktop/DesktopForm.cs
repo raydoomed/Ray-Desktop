@@ -110,6 +110,7 @@ namespace ChildSessionDesktop
             int initialW = (int)(screenW * 0.9);
             int initialH = (int)(initialW / aspect + 0.5);
             ClientSize = new Size(initialW, initialH);
+            if (!dynamicMode) _fixedMatchClient = new Size(initialW, initialH);   // 固定启动即记录匹配目标客户区（切动态据此判断是否被拉伸）
             // 最小尺寸严格保持主机比例，缩到最小也不破比例、无黑边
             int minW = 640;
             MinimumSize = new Size(minW, (int)(minW / aspect + 0.5));
