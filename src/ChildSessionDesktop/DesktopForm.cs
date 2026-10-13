@@ -17,6 +17,8 @@ namespace ChildSessionDesktop
         private readonly Timer statusTimer;
         private readonly Timer displayResizeTimer;
         private readonly Timer clipboardRelayTimer;
+        private System.Windows.Forms.Timer readyTimer;        // 连接就绪 4s 后创建工具栏（P3-5：提升为字段，OnClosing 统一 Stop）
+        private System.Windows.Forms.Timer lateResizeTimer;   // 分辨率校正 900ms 延迟（P3-5：提升为字段，OnClosing 统一 Stop）
         private readonly ClipboardFileRelay clipboardRelay;
         private IMsTscAxEvents_Event rdpEvents;
         private bool connecting;
@@ -53,6 +55,7 @@ namespace ChildSessionDesktop
         private const int WM_SIZING = 0x0214;
         private const int WM_EXITSIZEMOVE = 0x0232;
         private const int WM_HOTKEY = 0x0312;
+        private const int WM_DISPLAYCHANGE = 0x007E;   // 系统显示分辨率/屏幕集合变化（P3-12）
         private const int SW_SHOWNORMAL = 1;
         private const uint VK_F11 = 0x7A;
         private const uint SWP_NOZORDER = 0x0004;
@@ -260,6 +263,13 @@ namespace ChildSessionDesktop
             if (m.Msg == WM_HOTKEY && m.WParam.ToInt32() == 1)
             {
                 ToggleFullscreen();
+                return;
+            }
+
+            // 系统设置里改分辨率/插拔显示器时不触发 OnMove；按窗口所在屏重新适配（P3-12）
+            if (m.Msg == WM_DISPLAYCHANGE)
+            {
+                AutoFollowScreen();
                 return;
             }
 
@@ -479,10 +489,10 @@ namespace ChildSessionDesktop
                 MatchWindowToSession(fw, fh);
                 ApplyLetterbox();
                 // 900ms 后读回真实分辨率校正，并放行 750ms readback（与分辨率菜单一致）
-                var late = new Timer { Interval = 900 };
-                late.Tick += delegate
+                lateResizeTimer = new Timer { Interval = 900 };
+                lateResizeTimer.Tick += delegate
                 {
-                    late.Stop(); late.Dispose();
+                    lateResizeTimer.Stop(); lateResizeTimer.Dispose();
                     try
                     {
                         var c2 = (IMsRdpClient9)rdp.GetOcxObject();
@@ -494,7 +504,7 @@ namespace ChildSessionDesktop
                     MatchWindowToSession(currentSessW, currentSessH);
                     if (toolBar != null) toolBar.FollowHost(this);
                 };
-                late.Start();
+                lateResizeTimer.Start();
             }
             if (toolBar != null)
             {
@@ -574,7 +584,6 @@ namespace ChildSessionDesktop
         {
             if (toolBar != null) return;
             toolBar = new ToolbarForm();
-            toolBar.Ready = true;
             toolBar.ToggleFullscreen = ToggleFullscreen;
             toolBar.ShowResMenu = ShowResMenuAt;
             toolBar.ShowDisplayModeMenu = ShowDisplayModeMenuAt;
@@ -759,10 +768,10 @@ namespace ChildSessionDesktop
                 // 使 WM_EXITSIZEMOVE 触发的 ApplyDisplaySize 因尺寸未变而跳过，不覆盖刚选定的分辨率（否则要选两次才生效）。
                 if (dynamicMode) HoldCurrentDisplaySize();
                 // ActiveX 显示面异步重建：等 900ms 后读回真实分辨率，再校正一次（对齐 workbuddy）
-                var late = new Timer { Interval = 900 };
-                late.Tick += delegate
+                lateResizeTimer = new Timer { Interval = 900 };
+                lateResizeTimer.Tick += delegate
                 {
-                    late.Stop(); late.Dispose();
+                    lateResizeTimer.Stop(); lateResizeTimer.Dispose();
                     try
                     {
                         var c2 = (IMsRdpClient9)rdp.GetOcxObject();
@@ -782,7 +791,7 @@ namespace ChildSessionDesktop
                     // 画面刷新改由 ActiveX 的 OnResize 事件从源头驱动（见 HandleRemoteResize）
                     if (toolBar != null) toolBar.FollowHost(this);
                 };
-                late.Start();
+                lateResizeTimer.Start();
             }
             catch (Exception ex)
             {
@@ -1004,7 +1013,7 @@ namespace ChildSessionDesktop
                         lastFailedDisplaySize = Size.Empty;
                         nextResizeAttempt = DateTime.MinValue;
                         // 桌面完全显示、分辨率稳定后才创建工具栏，避免启动早期工具栏/气泡位置错误
-                        var readyTimer = new System.Windows.Forms.Timer();
+                        readyTimer = new System.Windows.Forms.Timer();
                         readyTimer.Interval = 4000;
                         readyTimer.Tick += delegate
                         {
@@ -1371,6 +1380,8 @@ namespace ChildSessionDesktop
             if (_moreMenu != null) { _moreMenu.Dispose(); _moreMenu = null; }
             if (_resMenu != null) { _resMenu.Dispose(); _resMenu = null; }
             clipboardRelayTimer.Stop();
+            if (readyTimer != null) readyTimer.Stop();        // P3-5：停止连接就绪后的 4s 建工具栏定时器，避免关闭流程中创建孤儿工具栏
+            if (lateResizeTimer != null) lateResizeTimer.Stop();   // P3-5：停止分辨率校正的 900ms 延迟
             clipboardRelay.Dispose();
             ClipboardFileRelay.ClearMailbox();
             try { ((IMsTscAx)rdp.GetOcxObject()).Disconnect(); }
