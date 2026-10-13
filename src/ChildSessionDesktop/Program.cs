@@ -61,6 +61,7 @@ namespace ChildSessionDesktop
                 if (!createdNew)
                 {
                     Log("Another Ray Desktop instance is already running; this instance will exit.");
+                    MessageBox.Show(Strings.T("msg_already_running"), "Ray Desktop", MessageBoxButtons.OK, MessageBoxIcon.Information);
                     return;
                 }
                 Application.Run(new DesktopForm(dynamicMode));
@@ -179,8 +180,5 @@ namespace ChildSessionDesktop
 
         [DllImport("kernel32.dll")]
         internal static extern uint GetCurrentProcessId();
-
-        [DllImport("user32.dll")]
-        internal static extern uint GetDpiForWindow(IntPtr hwnd);
     }
 }

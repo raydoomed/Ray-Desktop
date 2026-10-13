@@ -27,6 +27,7 @@ namespace ChildSessionDesktop
             // 入口 / 通用
             { "err_title", "子会话桌面错误" },
             { "startup_fail_title", "子会话桌面启动失败" },
+            { "msg_already_running", "Ray Desktop 已在运行。" },
             // 显示模式菜单
             { "menu_fixed", "固定分辨率" },
             { "menu_dynamic", "动态分辨率" },
@@ -77,6 +78,7 @@ namespace ChildSessionDesktop
         {
             { "err_title", "Ray Desktop error" },
             { "startup_fail_title", "Ray Desktop failed to start" },
+            { "msg_already_running", "Ray Desktop is already running." },
             { "menu_fixed", "Fixed resolution" },
             { "menu_dynamic", "Dynamic resolution" },
             { "menu_about", "About Ray Desktop" },
