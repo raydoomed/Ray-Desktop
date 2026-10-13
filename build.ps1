@@ -31,6 +31,14 @@ $icon = Join-Path $PSScriptRoot 'assets\RayDesktop.ico'
 $childTarget = Join-Path $output 'Raydesktop.exe'
 $childTemporary = Join-Path $output 'Raydesktop.build.exe'
 
+# ---- 版本号与 AssemblyInfo（P2-14）：发布时更新 $version，脚本据此生成程序集版本 ----
+$version = '1.3.0.0'
+$childAssemblyInfo = Join-Path ([IO.Path]::GetTempPath()) ('RayDesktopAssemblyInfo-' + [Guid]::NewGuid().ToString('N') + '.cs')
+[IO.File]::WriteAllText($childAssemblyInfo,
+    "using System.Reflection;`r`n[assembly: AssemblyTitle(`"Ray Desktop`")]`r`n[assembly: AssemblyVersion(`"$version`")]`r`n[assembly: AssemblyFileVersion(`"$version`")]`r`n",
+    [Text.Encoding]::UTF8)
+$childSources = @($childSources) + @($childAssemblyInfo)
+
 # ---- AxImp.exe detection: probe Windows SDK dirs (no hardcoded local path); clear error if missing ----
 $aximp = $null
 $sdkRoots = @(
@@ -73,10 +81,10 @@ try {
     if ($LASTEXITCODE -ne 0) { throw "RDP ActiveX wrapper generation failed with exit code $LASTEXITCODE" }
 
     $childReferences = $references + @(("/r:{0}" -f $interop), ("/r:{0}" -f $axInterop))
-    & $compiler /nologo /target:winexe ("/out:{0}" -f $childTemporary) ("/win32icon:{0}" -f $icon) ("/win32manifest:{0}" -f $childManifest) @childReferences @childSources
+    & $compiler /nologo /target:winexe /optimize+ /platform:anycpu /debug- ("/out:{0}" -f $childTemporary) ("/win32icon:{0}" -f $icon) ("/win32manifest:{0}" -f $childManifest) @childReferences @childSources
     if ($LASTEXITCODE -ne 0) { throw "Child-session GUI build failed with exit code $LASTEXITCODE" }
 
-    & $compiler /nologo /target:winexe ("/out:{0}" -f $setupTemporary) ("/win32manifest:{0}" -f $setupManifest) @setupReferences $setupSource
+    & $compiler /nologo /target:winexe /optimize+ /platform:anycpu /debug- ("/out:{0}" -f $setupTemporary) ("/win32manifest:{0}" -f $setupManifest) @setupReferences $setupSource
     if ($LASTEXITCODE -ne 0) { throw "Child-session setup helper build failed with exit code $LASTEXITCODE" }
 
     Publish-BuildOutput $childTemporary $childTarget
@@ -86,7 +94,7 @@ try {
     Write-Host 'Built Raydesktop.exe, EnableChildSessions.exe, and the two RDP interop dependencies.'
 }
 finally {
-    foreach ($temporary in @($childTemporary, $setupTemporary)) {
+    foreach ($temporary in @($childTemporary, $setupTemporary, $childAssemblyInfo)) {
         if (Test-Path -LiteralPath $temporary) { Remove-Item -LiteralPath $temporary -Force }
     }
     if (Test-Path -LiteralPath $interopDirectory) {
