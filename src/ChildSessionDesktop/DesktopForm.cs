@@ -105,8 +105,7 @@ namespace ChildSessionDesktop
             int screenW = Screen.PrimaryScreen.Bounds.Width;
             int screenH = Screen.PrimaryScreen.Bounds.Height;
             if (screenW <= 0 || screenH <= 0) { screenW = 1280; screenH = 720; }
-            aspect = (double)screenW / (double)screenH;
-            currentSessW = screenW; currentSessH = screenH;
+            SetSessionResolution(screenW, screenH);
             if (!dynamicMode) { _fixedSessW = screenW; _fixedSessH = screenH; }   // 固定启动：记录初始固定分辨率（主机屏幕）
             int initialW = (int)(screenW * 0.9);
             int initialH = (int)(initialW / aspect + 0.5);
@@ -319,6 +318,14 @@ namespace ChildSessionDesktop
             catch { }
         }
 
+        // 会话分辨率的唯一事实源：同步 currentSessW/H 与 aspect，杜绝双源背离（P2-11）。
+        private void SetSessionResolution(int w, int h)
+        {
+            if (w <= 0 || h <= 0) return;
+            currentSessW = w; currentSessH = h;
+            aspect = (double)w / (double)h;
+        }
+
         private void ApplyLetterbox()
         {
             if (rdp == null || rdp.IsDisposed) return;
@@ -466,7 +473,7 @@ namespace ChildSessionDesktop
                     }
                 }
                 catch (Exception ex) { Program.Log("Could not set fixed session resolution: " + ex.GetBaseException().Message); }
-                currentSessW = fw; currentSessH = fh; aspect = (double)fw / (double)fh;
+                SetSessionResolution(fw, fh);
                 MatchWindowToSession(fw, fh);
                 ApplyLetterbox();
                 // 900ms 后读回真实分辨率校正，并放行 750ms readback（与分辨率菜单一致）
@@ -478,7 +485,7 @@ namespace ChildSessionDesktop
                     {
                         var c2 = (IMsRdpClient9)rdp.GetOcxObject();
                         int dw = c2.DesktopWidth, dh = c2.DesktopHeight;
-                        if (dw > 0 && dh > 0) { currentSessW = dw; currentSessH = dh; aspect = (double)dw / (double)dh; }
+                        if (dw > 0 && dh > 0) SetSessionResolution(dw, dh);
                     }
                     catch { }
                     _resChangePending = false;
@@ -741,8 +748,7 @@ namespace ChildSessionDesktop
                 client.UpdateSessionDisplaySettings((uint)w, (uint)h, pw, ph, 0, 100, 100);
                 Program.Log("Resolution menu: session set to " + w + "x" + h);
                 _resChangePending = true;   // 改分辨率期间屏蔽 UpdateConnectionStatus 的旧值 readback 干扰
-                currentSessW = w; currentSessH = h;
-                aspect = (double)w / (double)h;
+                SetSessionResolution(w, h);
                 if (toolBar != null) toolBar.ResetToTopCenter();   // 分辨率变化→工具栏回顶部居中，避免旧偏移跑出变小后的窗口
                 // 窗口匹配新比例（非全屏：窗口比例=画面比例 → 控件铺满无黑边；全屏：只等比重排控件）。
                 // 固定/动态一致：选什么分辨率，会话分辨率就是什么，窗口自动匹配该比例铺满。
@@ -761,8 +767,7 @@ namespace ChildSessionDesktop
                         int dw = c2.DesktopWidth, dh = c2.DesktopHeight;
                         if (dw > 0 && dh > 0)
                         {
-                            currentSessW = dw; currentSessH = dh;
-                            aspect = (double)dw / (double)dh;
+                            SetSessionResolution(dw, dh);
                             Program.Log("Resolution menu readback " + dw + "x" + dh);
                         }
                     }
@@ -883,8 +888,7 @@ namespace ChildSessionDesktop
                     sw &= ~1; sh &= ~1;   // RDP 要求偶数像素宽
                     client.DesktopWidth = sw;
                     client.DesktopHeight = sh;
-                    currentSessW = sw; currentSessH = sh;   // 同步，避免 aspect 与 currentSessW/H 双源背离（P2-11）
-                    aspect = (double)sw / (double)sh;
+                    SetSessionResolution(sw, sh);
                     Program.Log("Requesting child-session desktop at " + sw + "x" + sh + " from the start (fixed)");
                 }
                 var extended = (IMsRdpExtendedSettings)ocx;
@@ -1046,8 +1050,7 @@ namespace ChildSessionDesktop
                             // 改分辨率（ApplyResolutionPick）期间屏蔽，防止读到过渡旧值把布局打回上一下分辨率。
                             if (dw > 0 && dh > 0 && !_resChangePending && (dw != currentSessW || dh != currentSessH))
                             {
-                                currentSessW = dw; currentSessH = dh;
-                                aspect = (double)dw / (double)dh;
+                                SetSessionResolution(dw, dh);
                                 Program.Log("Session resolution readback " + dw + "x" + dh + "; aspect=" + aspect.ToString("0.0000"));
                                 ApplyLetterbox();
                             }
@@ -1312,10 +1315,9 @@ namespace ChildSessionDesktop
                 lastFailedDisplaySize = Size.Empty;
                 resizeRetryCount = 0;
                 nextResizeAttempt = DateTime.MinValue;
-                // 同步 currentSessW/H：动态模式下窗口尺寸变化会真实改变会话分辨率，
+                // 通过唯一事实源 SetSessionResolution 同步 currentSessW/H：动态模式下窗口尺寸变化会真实改变会话分辨率，
                 // 不更新则分辨率菜单打勾仍用旧值（如最大化后还原，还原回 1280×720 却因 currentSessW 停在最大化值而不打勾）。
-                currentSessW = width; currentSessH = height;
-                aspect = (double)width / (double)height;
+                SetSessionResolution(width, height);
                 Program.Log("Remote desktop resized to " + width + "x" + height);
             }
             catch (Exception ex)
