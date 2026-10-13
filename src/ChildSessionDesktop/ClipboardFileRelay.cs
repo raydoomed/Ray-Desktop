@@ -25,7 +25,7 @@ namespace ChildSessionDesktop
         private DateTime lastSentAt;
         private DateTime lastAppliedAt;
         private bool disposed;
-        private bool clipboardErrorLogged;
+        private DateTime lastClipboardErrorLoggedAt = DateTime.MinValue;   // 30s 窗口内同一读取错误只记一次，之后可再记（P2-5）
         private bool retryClipboardRead;
 
         internal ClipboardFileRelay(bool child)
@@ -154,9 +154,9 @@ namespace ChildSessionDesktop
             }
             catch (Exception ex)
             {
-                if (!clipboardErrorLogged)
+                if ((DateTime.Now - lastClipboardErrorLoggedAt).TotalSeconds > 30)
                 {
-                    clipboardErrorLogged = true;
+                    lastClipboardErrorLoggedAt = DateTime.Now;
                     Program.Log("File clipboard relay could not read the clipboard: " + ex.GetBaseException().Message);
                 }
             }
