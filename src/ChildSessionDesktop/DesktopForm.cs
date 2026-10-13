@@ -419,10 +419,6 @@ namespace ChildSessionDesktop
                 _fixedSessW = currentSessW; _fixedSessH = currentSessH;
             }
             dynamicMode = mode;
-            // 模式切换后，动态跟随必须基于当前窗口重新计算：清掉 lastRequestedDisplaySize 去重残留
-            // （全屏退出/跨屏/选分辨率等 HoldCurrentDisplaySize 预置的旧值），否则固定拉伸→切动态的
-            // 首次 ApplyDisplaySize 被误判"尺寸未变"而跳过，第一次不跟随、要第二次操作才生效。
-            lastRequestedDisplaySize = Size.Empty;
             Program.Log("Display mode switched to " + (mode ? "dynamic" : "fixed"));
             // F11 全屏热键仅在固定模式注册（动态模式画面铺满、窗口自由，不提供 F11）
             if (Handle != IntPtr.Zero)
