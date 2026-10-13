@@ -44,14 +44,35 @@ $setupAssemblyInfo = Join-Path ([IO.Path]::GetTempPath()) ('RayDesktopSetupAssem
     "using System.Reflection;`r`n[assembly: AssemblyTitle(`"Ray Desktop Setup`")]`r`n[assembly: AssemblyVersion(`"$version`")]`r`n[assembly: AssemblyFileVersion(`"$version`")]`r`n",
     [Text.Encoding]::UTF8)
 
-# ---- AxImp.exe detection: probe Windows SDK dirs (no hardcoded local path); clear error if missing ----
+# ---- AxImp.exe detection: registry-installed SDK roots + RAYDESKTOP_SDK_ROOT override + standard dirs ----
+# Reads the real install root from the registry (works even when the SDK lives on a custom drive/path),
+# honors an optional RAYDESKTOP_SDK_ROOT override, and keeps standard Program Files as a fallback.
 $aximp = $null
-$sdkRoots = @(
+$sdkRoots = New-Object System.Collections.Generic.List[string]
+if ($env:RAYDESKTOP_SDK_ROOT) { $sdkRoots.Add($env:RAYDESKTOP_SDK_ROOT) }
+foreach ($reg in @(
+    'HKLM:\SOFTWARE\Microsoft\Windows Kits\Installed Roots',
+    'HKLM:\SOFTWARE\Microsoft\Microsoft SDKs\Windows',
+    'HKLM:\SOFTWARE\Wow6432Node\Microsoft\Microsoft SDKs\Windows')) {
+    try {
+        $item = Get-ItemProperty -LiteralPath $reg -ErrorAction Stop
+        foreach ($prop in @('KitsRoot10', 'KitsRoot81', 'CurrentInstallFolder')) {
+            $val = $item.$prop
+            if ($val) { $sdkRoots.Add([string]$val) }
+        }
+    }
+    catch { }
+}
+foreach ($root in @(
     'C:\Program Files (x86)\Windows Kits\10\bin',
     'C:\Program Files (x86)\Microsoft SDKs\Windows',
-    'C:\Program Files\Microsoft SDKs\Windows'
-)
+    'C:\Program Files\Microsoft SDKs\Windows')) {
+    $sdkRoots.Add($root)
+}
+$seen = @{}
 foreach ($root in $sdkRoots) {
+    if (-not $root -or $seen.ContainsKey($root)) { continue }
+    $seen[$root] = $true
     if (-not [IO.Directory]::Exists($root)) { continue }
     $candidates = $null
     try {

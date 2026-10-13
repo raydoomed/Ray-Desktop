@@ -107,7 +107,10 @@ The core mechanism is the **Windows 11 native Child Session feature**: the same 
 │  ├─ Raydesktop.exe                       # Main program
 │  ├─ EnableChildSessions.exe              # UAC helper to enable the feature
 │  ├─ MSTSCLib.dll                         # RDP COM interop assembly
-│  └─ AxInterop.MSTSCLib.dll               # RDP ActiveX WinForms wrapper assembly
+│  ├─ AxInterop.MSTSCLib.dll               # RDP ActiveX WinForms wrapper assembly
+├─ tests/                                  # Regression tests (pure-function suites + runner)
+│  └─ RayDesktopTests/
+│     └─ Program.cs                        # Test runner: 31 assertions, run via run-tests.ps1
 └─ src/
    ├─ ChildSessionDesktop/
    │  ├─ Program.cs               # Entry point, single-instance, logging, P/Invoke, --lang / --dynamic parsing
@@ -117,6 +120,8 @@ The core mechanism is the **Windows 11 native Child Session feature**: the same 
    │  ├─ ToolbarForm.cs           # Floating toolbar (7 buttons, GDI+ self-drawn)
    │  ├─ TooltipForm.cs           # Translucent tooltip bubble
    │  ├─ ClipboardFileRelay.cs    # Two-way file clipboard bridging over the shared file system
+   │  ├─ Geometry.cs              # Pure geometry helpers: aspect-locked resize, letterbox math
+   │  ├─ ClipboardProtocol.cs     # Clipboard mailbox message framing / parsing
    │  └─ app.manifest             # Main program manifest: Per-Monitor V2 DPI, asInvoker
    └─ ChildSessionSetup/
       ├─ Program.cs               # Source of the admin helper that enables Child Sessions
@@ -130,7 +135,7 @@ The core mechanism is the **Windows 11 native Child Session feature**: the same 
 ### Build machine
 
 - Windows with the built-in .NET Framework C# compiler `csc.exe`.
-- `AxImp.exe` from the Windows SDK .NET Framework tools. The build script locates it by recursively scanning `C:\Program Files (x86)\Microsoft SDKs\Windows` and `C:\Program Files\Microsoft SDKs\Windows`; if it is not found it stops with a clear error telling you to install the Windows SDK.
+- `AxImp.exe` from the Windows SDK .NET Framework tools. The build script reads the real SDK root from the Windows registry (`Windows Kits\Installed Roots`, `Microsoft SDKs\Windows`), honors an optional `RAYDESKTOP_SDK_ROOT` override, and falls back to the standard `C:\Program Files` locations — so a custom install drive/path still works — picking the highest-version hit; if not found it stops with a clear error telling you to install the Windows SDK.
 - The Windows-built-in `mstscax.dll`; the script generates the RDP ActiveX wrapper assembly from `%WINDIR%\System32\mstscax.dll`.
 - No NuGet packages or a virtual machine needed.
 

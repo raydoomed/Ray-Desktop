@@ -107,7 +107,10 @@ WinForms 宿主启动
 │  ├─ Raydesktop.exe                       # 主程序
 │  ├─ EnableChildSessions.exe              # 启用功能的 UAC 辅助程序
 │  ├─ MSTSCLib.dll                         # RDP COM 互操作程序集
-│  └─ AxInterop.MSTSCLib.dll               # RDP ActiveX WinForms 包装程序集
+│  ├─ AxInterop.MSTSCLib.dll               # RDP ActiveX WinForms 包装程序集
+├─ tests/                                  # 回归测试（纯函数套件 + 运行器）
+│  └─ RayDesktopTests/
+│     └─ Program.cs                        # 测试运行器：31 条断言，经 run-tests.ps1 运行
 └─ src/
    ├─ ChildSessionDesktop/
    │  ├─ Program.cs               # 入口、单实例、日志、P/Invoke、--lang / --dynamic 参数解析
@@ -117,6 +120,8 @@ WinForms 宿主启动
    │  ├─ ToolbarForm.cs           # 悬浮工具栏（7 按钮，GDI+ 自绘）
    │  ├─ TooltipForm.cs           # 真透明气泡提示
    │  ├─ ClipboardFileRelay.cs    # 同一文件系统下的双向文件剪贴板桥接
+   │  ├─ Geometry.cs              # 纯几何辅助：锁定宽高比的缩放、letterbox 计算
+   │  ├─ ClipboardProtocol.cs     # 剪贴板信箱消息帧格式 / 解析
    │  └─ app.manifest             # 主程序清单：Per-Monitor V2 DPI、asInvoker
    └─ ChildSessionSetup/
       ├─ Program.cs               # 启用 Child Sessions 的管理员辅助程序源码
@@ -130,7 +135,7 @@ WinForms 宿主启动
 ### 构建机器
 
 - Windows，且提供系统自带的 .NET Framework C# 编译器 `csc.exe`。
-- Windows SDK .NET Framework 工具中的 `AxImp.exe`。构建脚本递归扫描 `C:\Program Files (x86)\Microsoft SDKs\Windows` 与 `C:\Program Files\Microsoft SDKs\Windows` 查找它；找不到时以清晰报错停止并提示安装 Windows SDK。
+- Windows SDK .NET Framework 工具中的 `AxImp.exe`。构建脚本从 Windows 注册表（`Windows Kits\Installed Roots`、`Microsoft SDKs\Windows`）读取真实 SDK 根目录，支持可选的环境变量 `RAYDESKTOP_SDK_ROOT` 覆盖，并以标准的 `C:\Program Files` 位置兜底——因此装到自定义盘符/路径也能找到——取版本最高的命中；找不到时以清晰报错停止并提示安装 Windows SDK。
 - Windows 自带的 `mstscax.dll`，脚本从 `%WINDIR%\System32\mstscax.dll` 生成 RDP ActiveX 包装程序集。
 - 不需要 NuGet 包或虚拟机。
 
