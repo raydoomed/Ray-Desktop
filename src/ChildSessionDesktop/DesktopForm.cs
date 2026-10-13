@@ -1070,6 +1070,7 @@ namespace ChildSessionDesktop
             }
             catch (Exception ex)
             {
+                Program.Log("Could not read connection state: " + ex.GetBaseException().Message);
                 SetStatus(Strings.T("status_read_fail") + ex.GetBaseException().Message);
             }
         }
