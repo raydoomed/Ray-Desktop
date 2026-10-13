@@ -56,51 +56,38 @@ namespace RayDesktopTests
 
         // ---------- Geometry.LockAspectRect (WM_SIZING 8 方向) ----------
         // 共同前提：aspect=16/9≈1.7778, bw=8, bh=32, 锚定窗口 L=100,T=100,R=600,B=400（500x300）。
+        // 方向值必须用 Win32 标准 WMSZ_*（非顺时针：WMSZ_TOPLEFT=4, WMSZ_TOPRIGHT=5, WMSZ_BOTTOM=6）。
+        private static bool RectEq(Rect r, int l, int t, int rt, int b)
+        {
+            return r.Left == l && r.Top == t && r.Right == rt && r.Bottom == b;
+        }
+
         private static void TestLockAspectRect()
         {
             Rect anchor = new Rect { Left = 100, Top = 100, Right = 600, Bottom = 400 };
             Rect result;
             const double aspect = 16.0 / 9.0;
 
-            // 右拖：cw/ch>aspect → 锁高。ncw=476,W=484,H=300 → Right=584。
-            Check(Geometry.LockAspectRect(new Rect { Left = 100, Top = 100, Right = 700, Bottom = 400 }, anchor, 8, 32, aspect, 2, out result),
-                "Lock right returns true");
-            Check(result.Left == 100 && result.Right == 584 && result.Top == 100 && result.Bottom == 400,
-                "Lock right anchored: 100,584,100,400");
+            // 锁高组：drag {100,100,700,300} → cw=592, ch=168, ratio 3.52>aspect → ncw=299, W=307, H=200。
+            Rect lockHigh = new Rect { Left = 100, Top = 100, Right = 700, Bottom = 300 };
+            Check(Geometry.LockAspectRect(lockHigh, anchor, 8, 32, aspect, Geometry.WmszLeft, out result) && RectEq(result, 293, 100, 600, 300), "WmszLeft anchors left");
+            Check(Geometry.LockAspectRect(lockHigh, anchor, 8, 32, aspect, Geometry.WmszRight, out result) && RectEq(result, 100, 100, 407, 300), "WmszRight anchors right");
+            Check(Geometry.LockAspectRect(lockHigh, anchor, 8, 32, aspect, Geometry.WmszTop, out result) && RectEq(result, 100, 200, 407, 400), "WmszTop anchors top");
+            Check(Geometry.LockAspectRect(lockHigh, anchor, 8, 32, aspect, Geometry.WmszTopLeft, out result) && RectEq(result, 293, 200, 600, 400), "WmszTopLeft anchors topleft");
+            Check(Geometry.LockAspectRect(lockHigh, anchor, 8, 32, aspect, Geometry.WmszTopRight, out result) && RectEq(result, 100, 200, 407, 400), "WmszTopRight anchors topright");
+            Check(Geometry.LockAspectRect(lockHigh, anchor, 8, 32, aspect, Geometry.WmszBottom, out result) && RectEq(result, 100, 100, 407, 300), "WmszBottom anchors bottom");
+            Check(Geometry.LockAspectRect(lockHigh, anchor, 8, 32, aspect, Geometry.WmszBottomLeft, out result) && RectEq(result, 293, 100, 600, 300), "WmszBottomLeft anchors bottomleft");
+            Check(Geometry.LockAspectRect(lockHigh, anchor, 8, 32, aspect, Geometry.WmszBottomRight, out result) && RectEq(result, 100, 100, 407, 300), "WmszBottomRight anchors bottomright");
 
-            // 下拖：cw/ch<aspect → 锁宽。ncw=492,nch=277,W=500,H=309 → Bottom=409。
-            Check(Geometry.LockAspectRect(new Rect { Left = 100, Top = 100, Right = 600, Bottom = 500 }, anchor, 8, 32, aspect, 4, out result),
-                "Lock bottom returns true");
-            Check(result.Left == 100 && result.Right == 600 && result.Top == 100 && result.Bottom == 409,
-                "Lock bottom anchored: 100,600,100,409");
+            // 非法方向按右下处理。
+            Check(Geometry.LockAspectRect(lockHigh, anchor, 8, 32, aspect, 99, out result) && RectEq(result, 100, 100, 407, 300), "default dir = bottomright");
 
-            // 左拖：锁高 ncw=476,W=484 → Left=600-484=116。
-            Check(Geometry.LockAspectRect(new Rect { Left = 50, Top = 100, Right = 600, Bottom = 400 }, anchor, 8, 32, aspect, 1, out result),
-                "Lock left returns true");
-            Check(result.Left == 116 && result.Right == 600 && result.Top == 100 && result.Bottom == 400,
-                "Lock left anchored: 116,600,100,400");
-
-            // 左上拖：cw/ch<aspect → 锁宽。ncw=542,nch=305,W=550,H=337 → Left=50,Top=63。
-            Check(Geometry.LockAspectRect(new Rect { Left = 50, Top = 60, Right = 600, Bottom = 400 }, anchor, 8, 32, aspect, 5, out result),
-                "Lock topleft returns true");
-            Check(result.Left == 50 && result.Right == 600 && result.Top == 63 && result.Bottom == 400,
-                "Lock topleft anchored: 50,600,63,400");
-
-            // 右下拖：锁宽。ncw=592,nch=333,W=600,H=365 → Right=700,Bottom=465。
-            Check(Geometry.LockAspectRect(new Rect { Left = 100, Top = 100, Right = 700, Bottom = 500 }, anchor, 8, 32, aspect, 8, out result),
-                "Lock bottomright returns true");
-            Check(result.Left == 100 && result.Right == 700 && result.Top == 100 && result.Bottom == 465,
-                "Lock bottomright anchored: 100,700,100,465");
-
-            // 默认方向（非法 dir）按右下处理。
-            Check(Geometry.LockAspectRect(new Rect { Left = 100, Top = 100, Right = 700, Bottom = 500 }, anchor, 8, 32, aspect, 99, out result),
-                "Lock default dir returns true");
-            Check(result.Left == 100 && result.Right == 700 && result.Top == 100 && result.Bottom == 465,
-                "Lock default dir = bottomright");
+            // 锁宽组：drag {100,100,600,500} → cw=492, ch=368, ratio 1.337<aspect → nch=277, W=500, H=309。
+            Rect lockWide = new Rect { Left = 100, Top = 100, Right = 600, Bottom = 500 };
+            Check(Geometry.LockAspectRect(lockWide, anchor, 8, 32, aspect, Geometry.WmszBottom, out result) && RectEq(result, 100, 100, 600, 409), "WmszBottom lock-wide");
 
             // 拖动矩形过小 → 不锁定。
-            Check(!Geometry.LockAspectRect(new Rect { Left = 100, Top = 100, Right = 250, Bottom = 300 }, anchor, 8, 32, aspect, 2, out result),
-                "Lock too-small drag returns false");
+            Check(!Geometry.LockAspectRect(new Rect { Left = 100, Top = 100, Right = 250, Bottom = 300 }, anchor, 8, 32, aspect, Geometry.WmszRight, out result), "Lock too-small drag returns false");
         }
 
         // ---------- ClipboardProtocol.Parse ----------

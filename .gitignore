@@ -17,3 +17,6 @@ Desktop.ini
 
 # 发布说明（本地保留，GitHub Release 页为准，不入库）
 release-notes/
+
+# 测试产物（不入库）
+tests/*.exe
