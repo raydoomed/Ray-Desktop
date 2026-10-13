@@ -236,7 +236,7 @@ namespace ChildSessionDesktop
                             // 使随后的 WM_EXITSIZEMOVE（跨屏移动结束）检测到尺寸未变而不覆盖目标分辨率。
                         }
                     }
-                    catch { }
+                    catch (Exception ex) { Program.Log("AutoFollowScreen apply failed: " + ex.GetBaseException().Message); }
                 }
                 else if (!_followScreenRes && rdp != null)
                 {
@@ -316,7 +316,7 @@ namespace ChildSessionDesktop
                 wp.rcNormalPosition = new RECT { Left = Left, Top = Top, Right = Right, Bottom = Bottom };
                 SetWindowPlacement(Handle, ref wp);
             }
-            catch { }
+            catch (Exception ex) { Program.Log("SyncRestoreRect failed: " + ex.GetBaseException().Message); }
         }
 
         // 会话分辨率的唯一事实源：同步 currentSessW/H 与 aspect，杜绝双源背离（P2-11）。
@@ -395,7 +395,7 @@ namespace ChildSessionDesktop
             itemUpdate.Click += delegate
             {
                 try { Process.Start("https://github.com/raydoomed/Ray-Desktop/releases"); }
-                catch { }
+                catch (Exception ex) { Program.Log("Could not open update page: " + ex.GetBaseException().Message); }
             };
             menu.Items.Add(itemReconnect);
             menu.Items.Add(itemAbout);
@@ -465,7 +465,7 @@ namespace ChildSessionDesktop
                     if (client.Connected == 1)
                     {
                         float dpi = 96f;
-                        try { using (var gr = rdp.CreateGraphics()) dpi = gr.DpiX; } catch { }
+                        try { using (var gr = rdp.CreateGraphics()) dpi = gr.DpiX; } catch (Exception ex) { Program.Log("Could not read RDP DPI from graphics: " + ex.GetBaseException().Message); }
                         uint pw = Geometry.ToMillimeters(fw, dpi);
                         uint ph = Geometry.ToMillimeters(fh, dpi);
                         client.UpdateSessionDisplaySettings((uint)fw, (uint)fh, pw, ph, 0, 100, 100);
@@ -488,7 +488,7 @@ namespace ChildSessionDesktop
                         int dw = c2.DesktopWidth, dh = c2.DesktopHeight;
                         if (dw > 0 && dh > 0) SetSessionResolution(dw, dh);
                     }
-                    catch { }
+                    catch (Exception ex) { Program.Log("Resolution readback failed: " + ex.GetBaseException().Message); }
                     _resChangePending = false;
                     MatchWindowToSession(currentSessW, currentSessH);
                     if (toolBar != null) toolBar.FollowHost(this);
@@ -514,7 +514,7 @@ namespace ChildSessionDesktop
                 int h = Math.Max(200, Math.Min(8192, ClientSize.Height));
                 lastRequestedDisplaySize = new Size(w & ~1, h);
             }
-            catch { }
+            catch (Exception ex) { Program.Log("HoldCurrentDisplaySize failed: " + ex.GetBaseException().Message); }
         }
 
         private void OpenLogFolder()
@@ -526,7 +526,7 @@ namespace ChildSessionDesktop
                 if (File.Exists(log)) Process.Start("explorer.exe", "/select,\"" + log + "\"");
                 else Process.Start("explorer.exe", dir);
             }
-            catch { }
+            catch (Exception ex) { Program.Log("Could not open log folder: " + ex.GetBaseException().Message); }
         }
 
         private void AboutBox()
@@ -743,7 +743,7 @@ namespace ChildSessionDesktop
                     return;
                 }
                 float dpi = 96f;
-                try { using (var gr = rdp.CreateGraphics()) dpi = gr.DpiX; } catch { }
+                try { using (var gr = rdp.CreateGraphics()) dpi = gr.DpiX; } catch (Exception ex) { Program.Log("Could not read RDP DPI from graphics: " + ex.GetBaseException().Message); }
                 uint pw = Geometry.ToMillimeters(w, dpi);
                 uint ph = Geometry.ToMillimeters(h, dpi);
                 client.UpdateSessionDisplaySettings((uint)w, (uint)h, pw, ph, 0, 100, 100);
@@ -772,7 +772,7 @@ namespace ChildSessionDesktop
                             Program.Log("Resolution menu readback " + dw + "x" + dh);
                         }
                     }
-                    catch { }
+                    catch (Exception ex) { Program.Log("Resolution menu readback failed: " + ex.GetBaseException().Message); }
                     _resChangePending = false;   // 校正完成，放行 UpdateConnectionStatus 的 readback
                     MatchWindowToSession(currentSessW, currentSessH);   // 内部已 ApplyLetterbox
                     // 匹配后 lastRequested 更新为最终窗口逻辑客户区：跨屏/缩放后窗口尺寸（≠目标分辨率）
@@ -1023,7 +1023,7 @@ namespace ChildSessionDesktop
                     connecting = false;
                     statusTimer.Stop();
                     EnterReconnectState();   // 启重连探测；须在 Disconnect 前，闭合其同步派发的 HandleDisconnected 递归
-                    try { ((IMsTscAx)rdp.GetOcxObject()).Disconnect(); } catch { }
+                    try { ((IMsTscAx)rdp.GetOcxObject()).Disconnect(); } catch (Exception ex) { Program.Log("Disconnect after connection timeout failed: " + ex.GetBaseException().Message); }
                     SetStatus(Strings.T("status_timeout"));
                     Program.Log("Child-session connection timed out after 45 seconds (Connected=" + state + ")");
                     return;
@@ -1370,7 +1370,7 @@ namespace ChildSessionDesktop
             clipboardRelay.Dispose();
             ClipboardFileRelay.ClearMailbox();
             try { ((IMsTscAx)rdp.GetOcxObject()).Disconnect(); }
-            catch { }
+            catch (Exception ex) { Program.Log("Disconnect during shutdown failed: " + ex.GetBaseException().Message); }
 
             try
             {
