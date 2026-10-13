@@ -40,8 +40,7 @@ namespace ChildSessionDesktop
         private const int DotSize = 24;   // 收起态小圆点直径（逻辑像素基准）
         private float _scale = 1f;   // 当前 DPI 缩放系数（DpiX/96），图标/圆角/间距按它放大，保证高 DPI 下与背景条匹配
 
-        // 桌面就绪前不显示气泡，避免启动早期位置错误
-        internal bool Ready;
+        // (P3-4 removed the always-true `Ready` gate: CreateToolbar runs 4s after connect, so tooltip can always show)
 
         internal ToolbarForm()
         {
@@ -61,7 +60,7 @@ namespace ChildSessionDesktop
             animTimer.Tick += delegate { AnimateIndicator(); };
             animTimer.Start();
             tooltip = new TooltipForm();
-            Disposed += delegate { animTimer.Stop(); animTimer.Dispose(); tooltip.Dispose(); };
+            Disposed += delegate { animTimer.Stop(); animTimer.Dispose(); tooltip.Dispose(); if (Region != null) { Region.Dispose(); Region = null; } };
         }
 
         // 按当前 _scale 重建按钮布局与窗体尺寸（构造、DPI 变化时调用）
@@ -398,8 +397,7 @@ namespace ChildSessionDesktop
                 animTimer.Start();   // 重启滑动动画（进入按钮或离开按钮区）
                 if (idx >= 0)
                 {
-                    if (Ready) tooltip.ShowFor(RectangleToScreen(buttonRects[idx]), HoverText(idx));
-                    else tooltip.HideAway();   // 桌面未就绪不显示气泡
+                    tooltip.ShowFor(RectangleToScreen(buttonRects[idx]), HoverText(idx));
                 }
                 else tooltip.HideAway();
             }
@@ -470,8 +468,7 @@ namespace ChildSessionDesktop
         {
             if (idx == 0 && ToggleFullscreen != null)
             {
-                bool fs = ToggleFullscreen();
-                UpdateState(fs);
+                ToggleFullscreen();   // DesktopForm.ToggleFullscreen 内部已调 UpdateState 通知重绘（P3-3），不重复设置
             }
             else if (idx == 2 && ShowResMenu != null)
             {
@@ -506,13 +503,7 @@ namespace ChildSessionDesktop
             {
                 Collapse();
             }
-            else if (idx > 0 && idx != DragBtnIndex)
-            {
-                selectedIndex = idx;   // 预留按钮：点击锁定选中（指示器停在该位置）
-                Invalidate();
-                animTimer.Start();   // 指示器滑向新选中的工具
-            }
-            // 拖动按钮（DragBtnIndex）点击不触发命令，只作拖动把手
+            // 拖动按钮（DragBtnIndex）点击不触发命令，只作拖动把手；其余按钮全部接功能，无预留分支
         }
 
         // —— 无障碍（P2-12）：读屏可识别每个按钮（Name 复用 HoverText，Role=PushButton），方向键在按钮间移动焦点，Enter/Space 触发 ——
@@ -569,7 +560,7 @@ namespace ChildSessionDesktop
                 hoverIndex = selectedIndex;
                 Invalidate();
                 animTimer.Start();
-                if (Ready && selectedIndex >= 0) tooltip.ShowFor(RectangleToScreen(buttonRects[selectedIndex]), HoverText(selectedIndex));
+                if (selectedIndex >= 0) tooltip.ShowFor(RectangleToScreen(buttonRects[selectedIndex]), HoverText(selectedIndex));
                 e.Handled = true;
             }
             else if (e.KeyCode == Keys.Right || e.KeyCode == Keys.Down)
@@ -578,7 +569,7 @@ namespace ChildSessionDesktop
                 hoverIndex = selectedIndex;
                 Invalidate();
                 animTimer.Start();
-                if (Ready && selectedIndex >= 0) tooltip.ShowFor(RectangleToScreen(buttonRects[selectedIndex]), HoverText(selectedIndex));
+                if (selectedIndex >= 0) tooltip.ShowFor(RectangleToScreen(buttonRects[selectedIndex]), HoverText(selectedIndex));
                 e.Handled = true;
             }
             else if (e.KeyCode == Keys.Enter || e.KeyCode == Keys.Space)
