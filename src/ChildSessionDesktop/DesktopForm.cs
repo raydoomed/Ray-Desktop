@@ -48,6 +48,8 @@ namespace ChildSessionDesktop
         private FormBorderStyle prevBorder;
         private ToolbarForm toolBar;                 // 独立悬浮工具栏（可拖动，含全屏/退出全屏）
         private ContextMenuStrip _displayMenu, _moreMenu, _resMenu;   // 三个下拉菜单复用单实例，避免每次点击泄漏
+        private Timer reconnectTimer;             // 断开/超时后的低频自动重连探测
+        private int reconnectAttempts;            // 连续自动重连尝试次数（超上限停止并提示手动）
         private const int WM_SIZING = 0x0214;
         private const int WM_EXITSIZEMOVE = 0x0232;
         private const int WM_HOTKEY = 0x0312;
@@ -139,6 +141,12 @@ namespace ChildSessionDesktop
             {
                 displayResizeTimer.Stop();
                 ApplyDisplaySize();
+            };
+            reconnectTimer = new Timer { Interval = 2000 };
+            reconnectTimer.Tick += delegate
+            {
+                if (closing || IsDisposed) return;
+                TryAutoReconnect();
             };
             Shown += delegate
             {
@@ -1030,6 +1038,7 @@ namespace ChildSessionDesktop
                 {
                     connecting = false;
                     statusTimer.Stop();
+                    EnterReconnectState();   // 启重连探测；须在 Disconnect 前，闭合其同步派发的 HandleDisconnected 递归
                     try { ((IMsTscAx)rdp.GetOcxObject()).Disconnect(); } catch { }
                     SetStatus(Strings.T("status_timeout"));
                     Program.Log("Child-session connection timed out after 45 seconds (Connected=" + state + ")");
@@ -1135,7 +1144,8 @@ namespace ChildSessionDesktop
 
         private void HandleDisconnected(int reason)
         {
-            if (closing || IsDisposed) return;
+            // reconnectTimer.Enabled 说明已在重连流程中（如 Disconnect 同步派发本事件），直接闭合，避免覆盖外层状态。
+            if (closing || IsDisposed || reconnectTimer.Enabled) return;
             connecting = false;
             statusTimer.Stop();
             var message = reason == 1
@@ -1145,6 +1155,8 @@ namespace ChildSessionDesktop
                 message += Strings.T("status_disconnected_acct");
             Program.Log(message);
             SetStatus(message);
+            // 本地主动断开（reason==1）不自动重连；远端断开才进入自动重连。
+            if (reason != 1) EnterReconnectState();
         }
 
         private void HandleFatalError(int errorCode)
@@ -1155,6 +1167,7 @@ namespace ChildSessionDesktop
             var message = Strings.T("status_fatal", errorCode);
             Program.Log(message);
             SetStatus(message);
+            EnterReconnectState();
         }
 
         private void HandleLogonError(int errorCode)
@@ -1187,6 +1200,57 @@ namespace ChildSessionDesktop
             statusTimer.Stop();
             Program.Log(message);
             SetStatus(message);
+            EnterReconnectState();
+        }
+
+        private void EnterReconnectState()
+        {
+            if (closing || IsDisposed || reconnectTimer == null) return;
+            connecting = false;
+            if (!reconnectTimer.Enabled)
+            {
+                reconnectAttempts = 0;
+                reconnectTimer.Interval = 2000;
+                reconnectTimer.Start();
+                Program.Log("Entering auto-reconnect state");
+            }
+        }
+
+        private void StopReconnect()
+        {
+            if (reconnectTimer != null && reconnectTimer.Enabled) reconnectTimer.Stop();
+        }
+
+        private void TryAutoReconnect()
+        {
+            try
+            {
+                var client = (IMsRdpClient9)rdp.GetOcxObject();
+                if (client.Connected == 1)
+                {
+                    // 连接已恢复：停止重连探测，恢复 750ms 状态轮询。
+                    StopReconnect();
+                    connecting = false;
+                    statusTimer.Start();
+                    SetStatus(Strings.T("status_connected"));
+                    return;
+                }
+                reconnectAttempts++;
+                if (reconnectAttempts > 6)
+                {
+                    StopReconnect();
+                    Program.Log("Auto-reconnect gave up after 6 attempts; restart manually");
+                    SetStatus(Strings.T("status_reconnect_failed"));
+                    return;
+                }
+                Program.Log("Auto-reconnect attempt " + reconnectAttempts);
+                try { ((IMsTscAx)rdp.GetOcxObject()).Disconnect(); } catch { }
+                ConnectChildSession();
+            }
+            catch (Exception ex)
+            {
+                Program.Log("Auto-reconnect failed: " + ex.GetBaseException().Message);
+            }
         }
 
         private void QueueDisplayResize(bool windowSizeChanged = false)
@@ -1310,6 +1374,7 @@ namespace ChildSessionDesktop
             if (toolBar != null) { toolBar.Close(); toolBar.Dispose(); toolBar = null; }
             statusTimer.Stop();
             displayResizeTimer.Stop();
+            if (reconnectTimer != null) reconnectTimer.Stop();
             if (_displayMenu != null) { _displayMenu.Dispose(); _displayMenu = null; }
             if (_moreMenu != null) { _moreMenu.Dispose(); _moreMenu = null; }
             if (_resMenu != null) { _resMenu.Dispose(); _resMenu = null; }
