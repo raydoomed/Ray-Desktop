@@ -195,12 +195,58 @@ namespace RayDesktopTests
             }
         }
 
+        // ---------- ReconnectPolicy（v1.4.0 补测试基线：连接状态机决策） ----------
+        private static void TestReconnectPolicy()
+        {
+            // 触发条件：本地主动断开（reason==1）不自动重连，其余（远端/致命/登录/超时）进入。
+            Check(!ReconnectPolicy.ShouldAutoReconnect(1), "local disconnect(1) no auto-reconnect");
+            Check(ReconnectPolicy.ShouldAutoReconnect(0xC07), "remote disconnect auto-reconnect");
+            Check(ReconnectPolicy.ShouldAutoReconnect(0), "fatal/other reason auto-reconnect");
+
+            // Enter 首次进入：进行中、计数 0、未放弃。
+            var p = new ReconnectPolicy();
+            p.Enter();
+            Check(p.InProgress && p.Attempts == 0 && !p.GaveUp, "enter starts in-progress, attempts 0");
+
+            // Enter 幂等：已在重连时再次 Enter 不重置计数。
+            p.OnAttempt();   // attempts=1
+            p.Enter();
+            Check(p.Attempts == 1, "enter is idempotent (keeps attempts)");
+
+            // 先清零再测上限：6 次内继续，第 7 次触发放弃。
+            p.OnReconnected();
+            p.Enter();   // attempts 归 0
+            Check(p.InProgress && p.Attempts == 0, "fresh enter attempts 0");
+            for (int i = 1; i <= 6; i++) p.OnAttempt();
+            Check(p.Attempts == 6 && p.InProgress && !p.GaveUp, "attempt 6 still in progress, not gave up");
+            p.OnAttempt();   // 第 7 次 > MaxAttempts
+            Check(p.Attempts == 7 && p.GaveUp && !p.InProgress, "attempt 7 gave up, exits in-progress");
+
+            // OnAttempt 在非进行中无效（放弃后不再递增）。
+            int after = p.Attempts;
+            p.OnAttempt();
+            Check(p.Attempts == after, "on-attempt after gaveup is no-op");
+
+            // 连接恢复：退出重连、清零。
+            p.Enter();
+            p.OnAttempt();
+            p.OnReconnected();
+            Check(!p.InProgress && p.Attempts == 0 && !p.GaveUp, "reconnected resets");
+
+            // 手动重连：退出重连、清零。
+            p.Enter();
+            p.OnAttempt();
+            p.OnManualReconnect();
+            Check(!p.InProgress && p.Attempts == 0 && !p.GaveUp, "manual reconnect resets");
+        }
+
         private static int Main()
         {
             TestToMillimeters();
             TestComputeLetterbox();
             TestLockAspectRect();
             TestClipboardParse();
+            TestReconnectPolicy();
             Console.WriteLine("RayDesktopTests: " + _passed + " passed, " + _failed + " failed.");
             return _failed == 0 ? 0 : 1;
         }

@@ -13,7 +13,8 @@ $testOut = Join-Path $root 'RayDesktopTests.exe'
 $sources = @(
     (Join-Path $root 'RayDesktopTests\Program.cs'),
     (Join-Path $PSScriptRoot '..\src\ChildSessionDesktop\Geometry.cs'),
-    (Join-Path $PSScriptRoot '..\src\ChildSessionDesktop\ClipboardProtocol.cs')
+    (Join-Path $PSScriptRoot '..\src\ChildSessionDesktop\ClipboardProtocol.cs'),
+    (Join-Path $PSScriptRoot '..\src\ChildSessionDesktop\ReconnectPolicy.cs')
 )
 
 & $compiler /nologo /target:exe ("/out:{0}" -f $testOut) @sources

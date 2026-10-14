@@ -51,7 +51,7 @@ namespace ChildSessionDesktop
         private ToolbarForm toolBar;                 // 独立悬浮工具栏（可拖动，含全屏/退出全屏）
         private ContextMenuStrip _displayMenu, _moreMenu, _resMenu;   // 三个下拉菜单复用单实例，避免每次点击泄漏
         private Timer reconnectTimer;             // 断开/超时后的低频自动重连探测
-        private int reconnectAttempts;            // 连续自动重连尝试次数（超上限停止并提示手动）
+        private readonly ReconnectPolicy reconnectPolicy = new ReconnectPolicy();   // v1.4.0：重连决策委托纯逻辑（可测）
         private const int WM_SIZING = 0x0214;
         private const int WM_EXITSIZEMOVE = 0x0232;
         private const int WM_HOTKEY = 0x0312;
@@ -1173,7 +1173,7 @@ namespace ChildSessionDesktop
             Program.Log(message);
             SetStatus(message);
             // 本地主动断开（reason==1）不自动重连；远端断开才进入自动重连。
-            if (reason != 1) EnterReconnectState();
+            if (ReconnectPolicy.ShouldAutoReconnect(reason)) EnterReconnectState();
         }
 
         private void HandleFatalError(int errorCode)
@@ -1226,7 +1226,7 @@ namespace ChildSessionDesktop
             connecting = false;
             if (!reconnectTimer.Enabled)
             {
-                reconnectAttempts = 0;
+                reconnectPolicy.Enter();   // 幂等重置计数（已在重连则保留）
                 reconnectTimer.Interval = 2000;
                 reconnectTimer.Start();
                 Program.Log("Entering auto-reconnect state");
@@ -1238,7 +1238,7 @@ namespace ChildSessionDesktop
         {
             if (closing || rdp == null || rdp.IsDisposed || connecting) return;
             StopReconnect();
-            reconnectAttempts = 0;
+            reconnectPolicy.OnManualReconnect();
             Program.Log("Manual reconnect requested");
             ConnectChildSession();
         }
@@ -1258,19 +1258,20 @@ namespace ChildSessionDesktop
                     // 连接已恢复：停止重连探测，恢复 750ms 状态轮询。
                     StopReconnect();
                     connecting = false;
+                    reconnectPolicy.OnReconnected();
                     statusTimer.Start();
                     SetStatus(Strings.T("status_connected"));
                     return;
                 }
-                reconnectAttempts++;
-                if (reconnectAttempts > 6)
+                reconnectPolicy.OnAttempt();
+                if (reconnectPolicy.GaveUp)
                 {
                     StopReconnect();
                     Program.Log("Auto-reconnect gave up after 6 attempts; restart manually");
                     SetStatus(Strings.T("status_reconnect_failed"));
                     return;
                 }
-                Program.Log("Auto-reconnect attempt " + reconnectAttempts);
+                Program.Log("Auto-reconnect attempt " + reconnectPolicy.Attempts);
                 try { ((IMsTscAx)rdp.GetOcxObject()).Disconnect(); }
                 catch (Exception ex) { Program.Log("Auto-reconnect pre-disconnect failed: " + ex.GetBaseException().Message); }
                 ConnectChildSession();
