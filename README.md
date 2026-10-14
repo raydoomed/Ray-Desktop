@@ -122,6 +122,7 @@ The core mechanism is the **Windows 11 native Child Session feature**: the same 
    │  ├─ ClipboardFileRelay.cs    # Two-way file clipboard bridging over the shared file system
    │  ├─ Geometry.cs              # Pure geometry helpers: aspect-locked resize, letterbox math
    │  ├─ ClipboardProtocol.cs     # Clipboard mailbox message framing / parsing
+   │  ├─ ReconnectPolicy.cs      # Pure auto-reconnect decision logic (state machine, unit-tested)
    │  └─ app.manifest             # Main program manifest: Per-Monitor V2 DPI, asInvoker
    └─ ChildSessionSetup/
       ├─ Program.cs               # Source of the admin helper that enables Child Sessions

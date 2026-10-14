@@ -122,6 +122,7 @@ WinForms 宿主启动
    │  ├─ ClipboardFileRelay.cs    # 同一文件系统下的双向文件剪贴板桥接
    │  ├─ Geometry.cs              # 纯几何辅助：锁定宽高比的缩放、letterbox 计算
    │  ├─ ClipboardProtocol.cs     # 剪贴板信箱消息帧格式 / 解析
+   │  ├─ ReconnectPolicy.cs      # 纯自动重连决策逻辑（状态机，已单测）
    │  └─ app.manifest             # 主程序清单：Per-Monitor V2 DPI、asInvoker
    └─ ChildSessionSetup/
       ├─ Program.cs               # 启用 Child Sessions 的管理员辅助程序源码
