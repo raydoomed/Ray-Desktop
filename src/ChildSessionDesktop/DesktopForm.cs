@@ -1405,6 +1405,19 @@ namespace ChildSessionDesktop
             if (lateResizeTimer != null) lateResizeTimer.Stop();   // P3-5：停止分辨率校正的 900ms 延迟
             clipboardRelay.Dispose();
             ClipboardFileRelay.ClearMailbox();
+            // Q1（质量报告）：COM 事件退订 + 复位 eventsAttached——手动重连重建 COM 对象后 eventsAttached 残留会阻止对新对象重新订阅
+            if (eventsAttached && rdpEvents != null)
+            {
+                try
+                {
+                    rdpEvents.OnRemoteDesktopSizeChange -= HandleRemoteResize;
+                    rdpEvents.OnDisconnected -= HandleDisconnected;
+                    rdpEvents.OnFatalError -= HandleFatalError;
+                    rdpEvents.OnLogonError -= HandleLogonError;
+                }
+                catch (Exception ex) { Program.Log("Could not unsubscribe RDP events during shutdown: " + ex.GetBaseException().Message); }
+                eventsAttached = false;
+            }
             try { ((IMsTscAx)rdp.GetOcxObject()).Disconnect(); }
             catch (Exception ex) { Program.Log("Disconnect during shutdown failed: " + ex.GetBaseException().Message); }
 
