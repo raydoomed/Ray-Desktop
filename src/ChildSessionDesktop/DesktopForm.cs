@@ -489,6 +489,7 @@ namespace ChildSessionDesktop
                 MatchWindowToSession(fw, fh);
                 ApplyLetterbox();
                 // 900ms 后读回真实分辨率校正，并放行 750ms readback（与分辨率菜单一致）
+                if (lateResizeTimer != null) { lateResizeTimer.Stop(); lateResizeTimer.Dispose(); }   // P1-1：先释放旧实例，防覆盖后旧 timer 的 Stop() 误停新实例
                 lateResizeTimer = new Timer { Interval = 900 };
                 lateResizeTimer.Tick += delegate
                 {
@@ -768,6 +769,7 @@ namespace ChildSessionDesktop
                 // 使 WM_EXITSIZEMOVE 触发的 ApplyDisplaySize 因尺寸未变而跳过，不覆盖刚选定的分辨率（否则要选两次才生效）。
                 if (dynamicMode) HoldCurrentDisplaySize();
                 // ActiveX 显示面异步重建：等 900ms 后读回真实分辨率，再校正一次（对齐 workbuddy）
+                if (lateResizeTimer != null) { lateResizeTimer.Stop(); lateResizeTimer.Dispose(); }   // P1-1：先释放旧实例，防覆盖后旧 timer 的 Stop() 误停新实例
                 lateResizeTimer = new Timer { Interval = 900 };
                 lateResizeTimer.Tick += delegate
                 {
@@ -1030,6 +1032,7 @@ namespace ChildSessionDesktop
                         lastFailedDisplaySize = Size.Empty;
                         nextResizeAttempt = DateTime.MinValue;
                         // 桌面完全显示、分辨率稳定后才创建工具栏，避免启动早期工具栏/气泡位置错误
+                        if (readyTimer != null) { readyTimer.Stop(); readyTimer.Dispose(); }   // P1-1b：先释放旧实例，防覆盖泄漏与重复触发
                         readyTimer = new System.Windows.Forms.Timer();
                         readyTimer.Interval = 4000;
                         readyTimer.Tick += delegate
@@ -1100,7 +1103,8 @@ namespace ChildSessionDesktop
             {
                 Program.Log("Could not read connection state: " + ex.GetBaseException().Message);
                 SetStatus(Strings.T("status_read_fail") + ex.GetBaseException().Message);
-                statusTimer.Stop();   // 状态读不到，继续 750ms 轮询无意义；由 TryAutoReconnect 接管恢复
+                statusTimer.Stop();   // 状态读不到，继续 750ms 轮询无意义
+                if (!closing) EnterReconnectState();   // P1-2：兑现注释承诺——由 auto-reconnect 探测接管恢复，而非永久停摆（COM 读失败时断开事件不会来）
             }
         }
 

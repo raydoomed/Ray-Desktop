@@ -119,7 +119,7 @@ namespace ChildSessionDesktop
             int x = anchor.Left + (anchor.Width - w) / 2;
             int y = anchor.Top - h - 6;
             if (y < 0) y = anchor.Bottom + 6;   // 顶部不够则放下方
-            var wa = Screen.FromControl(this).WorkingArea;   // 底部/右侧越界也夹回，避免贴屏幕右下时气泡出屏
+            var wa = Screen.FromRectangle(anchor).WorkingArea;   // 用 anchor（按钮屏幕矩形）判屏；FromControl(this) 在首次显示时 Location 未设会取错屏（P2-2）
             x = Math.Max(wa.Left + 2, Math.Min(x, wa.Right - w - 2));
             y = Math.Max(wa.Top + 2, Math.Min(y, wa.Bottom - h - 2));
             return new Point(x, y);
