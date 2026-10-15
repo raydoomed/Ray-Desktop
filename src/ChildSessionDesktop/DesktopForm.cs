@@ -966,6 +966,8 @@ namespace ChildSessionDesktop
             }
 
             // P1-9②: 签名缺失时的兜底——拒绝版本与主程序不一致的辅助程序，防可写目录中被替换的二进制提权
+            // 注：appVer 取 AssemblyVersion（GetName().Version）、helperVer 取 FileVersion，二者相等依赖 build.ps1 同时注入
+            //     AssemblyVersion 与 AssemblyFileVersion（同一 $version）。改版本号时两处同步，否则会静默误判"版本不一致"而拒绝提权。
             try
             {
                 string appVer = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version.ToString();
