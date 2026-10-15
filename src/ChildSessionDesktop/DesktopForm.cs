@@ -979,7 +979,10 @@ namespace ChildSessionDesktop
             }
             catch (Exception ex)
             {
-                Program.Log("Could not verify setup helper version before elevation: " + ex.GetBaseException().Message);
+                // fail-closed：无法校验版本时拒绝启动（异常路径即"被替换/损坏"场景，放行=兜底失效）
+                Program.Log("Refusing to launch setup helper: version could not be verified (" + ex.GetBaseException().Message + ")");
+                SetStatus(Strings.T("status_launch_helper_fail") + " (版本无法校验 / version unverifiable)");
+                return;
             }
 
             try
