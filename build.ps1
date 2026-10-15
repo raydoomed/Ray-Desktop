@@ -33,7 +33,7 @@ $childTarget = Join-Path $output 'Raydesktop.exe'
 $childTemporary = Join-Path $output 'Raydesktop.build.exe'
 
 # ---- 版本号与 AssemblyInfo（P2-14）：发布时更新 $version，脚本据此生成程序集版本 ----
-$version = '1.4.1.0'
+$version = '1.4.2.0'
 $childAssemblyInfo = Join-Path ([IO.Path]::GetTempPath()) ('RayDesktopAssemblyInfo-' + [Guid]::NewGuid().ToString('N') + '.cs')
 [IO.File]::WriteAllText($childAssemblyInfo,
     "using System.Reflection;`r`n[assembly: AssemblyTitle(`"Ray Desktop`")]`r`n[assembly: AssemblyVersion(`"$version`")]`r`n[assembly: AssemblyFileVersion(`"$version`")]`r`n",
